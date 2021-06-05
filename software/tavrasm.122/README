@@ -1,0 +1,349 @@
+ LOCAL COPY OF ASSEMBLER WITH FIX FOR LATEST GCC
+
+
+  Toms AVR macro assembler - tavrasm 1.22
+ =============================================================================
+
+  tavrasm - A GNU/Linux assembler for the Atmel AVR series of
+  micro-controllers. Copyright (C) 1999-2003 Tom Mortensen
+
+  This program is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or (at
+  your option) any later version.
+
+  This program is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program; if not, write to the Free Software
+  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307,
+  USA.
+
+  Introduction
+ =============================================================================
+
+  tavrasm is an assembler for the Atmel AVR family of micro-controllers. 
+  It uses a syntax similar to the one found in the Atmel AVR DOS assembler.
+  Some of the features includes:
+
+   - Super-set of Atmel AVR assembler. 
+   - Macros in macros. 
+   - Save Intel HEX, Motorola S-record, Generic and binary output. 
+   - More than 100 warning/error messages. 
+   - Atmel object files compatible with Atmel's AVR Studio. 
+   - C escape characters in char/string literals. 
+   - Runs on (win)DOS, Linux, OS/2, Solaris, ...
+   - Free software released under GPL.
+
+  Installation
+ =============================================================================
+
+  Copy the tavrasm executable (tavrasm.exe for OS/2 and DOS) to a
+  directory in your path.
+
+  Running
+ =============================================================================
+
+  Just type 'tavrasm file.asm'. This will generate an Intel HEX output file
+  ('file.hex'). To get help, type 'tavrasm' with no arguments.
+
+  Compiling
+ =============================================================================
+
+  tavrasm should compile on most systems that are supported by gcc.
+  I haven't check for endianes, so this might be a problem if
+  anybody wants to compile it on non-i386 systems (mail me, and I will 
+  fix this). 
+
+  Check the makefile for additional information.
+
+  Systems supported
+ =============================================================================
+
+  Linux/x86:	I wrote parts of tavrasm on a Linux/x86.
+
+  Linux/PPC:   	Andreas Bogk reports that he has successfully compiled
+               	tavrasm on a LinuxPPC machine. 
+
+  Linux/Alpha: 	Now works (after a little bug fix).
+
+  FreeBSD:	Lots of people runs tavrasm on FreeBSD.
+
+  Sparc:	I have received reports from serveral people running
+                tavrasm on a Sparc station.
+
+  OS/2:		I wrote the initial version of tavrasm on OS/2 (using emx)
+ 
+
+  Bugs/Suggestions/Patches
+ =============================================================================
+
+  Please send any bug-reports/suggestions/patches to me (tom@tavrasm.org).
+
+  History
+ =============================================================================
+
+  1.22 - Several updates for ATmega (new devices, extended I/O etc.)
+
+         Thanks to Dariusz Kowalewski for these updates.
+
+         Fixed problem with .db 00
+
+         Thanks Mike Hall for reporting this.
+
+         Fixed 'symtab = (new (symbolTableEntry*))[size]' blunder. How that
+         ever slipped by GCC is beyond me :-) Lots of compilers won't even
+         allow it.
+
+         Thanks to Steven Saunderson for reporting this.
+
+  1.21 - Added support for the ATMega 128
+
+         Thanks to Jens Wilhelm Wulf for supplying the patch.
+
+         Fixed problem with the .align directive.
+         
+         Thanks to Rolf for reporting this.
+
+  1.20 - Added .align directive.
+
+         Thanks to John Romein for supplying the patch to implement this.
+
+  1.19 - Messed up applying some of the pathces in 1.18 :-(
+
+  1.18 - Added support for specifying unsigned integer values [0; 2^32-1]
+
+         Thanks to Richard Gerrits for pointing out the problem.
+
+         Added support for specifying Z/Y/Z for adiw, sbiw and movw.
+         
+         Thanks to Richard Barrington for suggesting this.
+
+         Added support for a bunch of Mega devices.
+
+         Thanks to Andreas Schwarz for supplying a patch with these.
+
+         Fixed problems compiling with GCC 3.2
+
+         Several people supplied patches, but I was just too busy
+         integrating them.
+
+         Thanks to Patrick Dreker for supplying the final patch.
+
+  1.17 - Added support for the BYTE1 (same as LOW) function.
+
+         Thanks to Timothy Lee for supplying this patch.
+
+         Fixed path delimiter problem in include path. I used 
+         DOS style '\' causing problems on *NIX.
+
+         Thanks to Timothy Lee for reporting this.
+
+  1.16 - Fixed problem with long macro names.
+
+         Thanks to Richard Gerrits for reporting this.
+
+         Increased maximum identifier length to 64 (and no, this was
+         not the fix to the problem above :).
+
+         Added support for using DOS (\13\10) files on *NIX systems.
+
+         Change URL to www.tavrasm.org in help/README/...
+
+  1.15 - Added support for multiple include path. Use '-I' to specify
+         additional include paths.
+
+         Thanks to Brian Rhodefer for adding this.
+
+         Added option to omit address extension record in Intel HEX files.
+         Use '-h' to omit address extension record.
+
+	 Released November 2000
+
+  1.14 - Added support for forward .org statements. Use '-f' to supress
+         warnings.
+
+         Thanks to Brian Rhodefer for suggesting this.
+
+	 Not released
+
+  1.13 - Some overall clean up and german translations.
+
+         Added support for local labels. Use _ as the first charcter of a
+         label to give it local scope between two non-local labels.
+
+         Specify -x to enable local labels.
+
+         Changed range checking code to allow negative numbers in some cases.
+
+         Thanks to Kurt Stege for implementing local labels and cleaning up
+         the code.
+
+	 Not released
+
+  1.12 - Added the 'spm' instruction (forgot the first time around)
+
+	 Thanks to Jochen Pernsteiner for pointing this out.
+
+	 Released December 1999
+
+  1.11 - Now the Alpha problem is fixed (I forgot to move  fix from test to
+         release source).
+
+	 Fixed promlem with detecting supported instructions (Introduced in 
+         1.10) - Thanks to Mark V. Vaysman for reporting this.      
+
+	 Removed carriage returns from source, so it will compile under
+         *NIX without problems. Thanks to Todd M. Squires for reporting this.
+
+	 Released December 1999
+
+  1.10 - Added the new instructions: 'eijmp', 'eicall', 'espm', 'mulsu', 
+         'fmul', 'fmuls', 'fmulsu', 'muls', 'movw', 'elpm'. 
+
+         Changed behaviour of 'lpm' according to Atmel specs.
+
+	 Added spanish translation - Thanks to Lluis Ballester for supplying
+	 the Spanish translation.
+
+	 Fixed .endm problem (it had to be lower case) - It was reported
+         on comp.arch.embedded by Ben Cantrick.
+
+	 Released December 1999
+
+  1.09 - Fixed problem with BRBC/BRBS (they did not work). I used the status 
+	 bit number for both source and destination operand (word of advise -
+	 don't use variable names like 'values' and 'valued' in the same 
+	 context :)
+
+	 Fixed problem when compiling on Alpha's
+
+	 Thanks to Todd M. Squires for reporting these (and supplying a patch
+	 for the Alpha problem).
+
+	 Released December 1999
+
+
+  1.08 - Fixed problem with SBR (Set Bits in Register). This is the same
+	 as ORI, but the SBR version had a bug (one of those that generates
+         faulty code), bit 0 was always set. 
+
+	 Thanks to Dean Huxley for reporting this (and supplying a patch).
+
+         Added support for AT90S4433 (similar to 4414/4434).</li>
+
+	 Released July 1999
+
+
+  1.07 - Added support for using PC as program counter (i.e. rjmp PC+4),
+	 EC as eeprom counter and DC as data counter.
+
+	 Thanks to Adam Dybkowski for suggesting this.
+
+	 Released May 1999
+
+
+  1.06 - Added support for wrapping branches and relative call/jumps
+	 Use the '-a' switch to enable this feature.
+
+	 Thanks to Jochen Pernsteiner for suggesting this.
+
+	 Restored the generic hex format. The generic hex format
+	 disappeared in version 1.03 (when the default file format was
+	 changed to Intel Hex). Use the '-g' switch to generate
+	 generic hex (files that looks like this: "000021:f7f0").
+
+	 Released May 1999
+
+
+  1.05 - Fixed problem with detection of binary numbers like '0b010101'.
+         This was bug was introduced by the new hex detection feature in
+         V. 1.04 :( 
+
+	 Thanks to Randy Ott for reporting this.
+
+         Fixed problem with memset of context stack that caused the winDOS
+         version to crash on some systems (strange that Linux/NT did not
+	 detect this obvious memory violation).
+
+         Thanks to Steve Maddigan for reporting this, and to my friend
+	 Henning for finding the bug.
+
+	 Released May 1999
+
+
+  1.04 - Fixed problem with tabs after include filename, thanks to
+         Andreas Bogk for reporting this. 
+
+	 Added support for specifying hex values like 1AB without '$' or '0x'
+	 thanks to Andreas Bogk for suggesting this.
+
+         Changed distribution format, so source i now located in a
+	 sub-directory.
+
+	 Released April 1999
+
+
+  1.03 - Modified to support Intel hex as the default.
+
+	 Now automatically determines the output file name.
+
+         Exits with a count of the number of errors (for make).
+
+         Thanks to Jim Dowling for supplying these patches.
+
+	 Released March 1999
+
+
+  1.02 - Added support for German - Thanks to Uwe Bonnes for supplying
+	 the German translation.
+
+	 Released February 1999
+
+
+  1.01 - Fixed alignment problem with forward references to .db in CSEG
+         ,thanks to Rob Penny for reporting this. 
+
+  	 Added a -d option to list supported devices.
+
+	 Updated the device information.
+
+	 Released January 1999
+
+
+  1.00 - Initial release September 1998 
+
+
+  TODO - None of these are critical, but would be nice :-)
+ =============================================================================
+
+  - Write some documentation !!!
+
+  - Change source to new {} style (they finally convinced me :-)
+
+  - Change handling of code/ROM buffers.
+
+  - Make more language versions (French/Italian) (find someone to help me)
+
+  - 0m01010101  Set mask
+
+  - .def PowerStatus = Autoreg high = reset, monitor
+
+  - opcode aliases med SBCI / SUBI =  255-ADCI/ADBI
+
+  - Sinw / Cosw / Sinb / Cosb
+
+  - define macros
+
+ =============================================================================
+
+  Copenhagen, July 2003
+  Tom Mortensen
+
+  E-mail : tom@tavrasm.org
+  WWW    : http://www.tavrasm.org
+
+ =============================================================================

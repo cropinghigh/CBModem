@@ -1,0 +1,947 @@
+//ASSEMBLER COMMAND: tavrasm -v -x -h "modem.asm-avr" -o "modem.hex" -r "modem.eep" -e "modem.lst"
+//AVRDUDE COMMAND(for usbtiny): avrdude -p m328p -c usbtiny -U flash:w:modem.hex 
+.include "m328def.inc"
+                
+.equ SYNCWORD_CONST=0b11011000111101000010100011010011
+                
+.dseg
+                                .org 0x100
+UartRXRingBuff:                 .byte 256
+UartTXRingBuff:                 .byte 256
+UartRXRBPtrRead:                .byte 1
+UartRXRBPtrWrite:               .byte 1
+UartTXRBPtrRead:                .byte 1
+UartTXRBPtrWrite:               .byte 1
+ModemRXTXBuffer:                .byte 831
+ModemRXTXBufferLen:             .byte 2 //+0-HIGH,+1-LOW
+ModemRXTXDataByteBuffer:        .byte 82 //80 bytes + 2byte checksum
+StatusByte:                     .byte 1 //0 bit - is echo enabled, 1 bit - is receiving enabled
+UartCommandBuffer:              .byte 80 //80 bytes
+
+//REGISTERS:
+//R9              - Interrupts, persistent on TX, RX
+//R10             - Interrupts, persistent on TX
+//R11             - Interrupts, persistent on TX
+//R12             - Interrupts, non-persistent
+//R13             - Interrupts, non-persistent
+//R14             - Interrupts, non-persistent
+//R15             - Interrupts, SREG
+//R16             - Main program
+//R17             - Main Program
+//R18             - Main Program
+//R19             - Main Program
+//R20             - Interrupts, persistent on RX
+//R21             - Interrupts, persistent on RX
+//R22             - Interrupts, persistent on RX
+//R23             - Interrupts, persistent on RX
+//R24             - Interrupts, persistent on RX
+//R25             - Interrupts, persistent on RX
+//XH,XL(R26,R27)  - Main program
+//YL,YH(R28,R29)  - Interrupts, non-persistent
+//ZL,ZH(R30, R31) - Main program
+
+
+
+.cseg
+                                //InterruptSetup
+                                rjmp Start
+.org INT1addr
+                                rjmp INT1Int
+.org OC1Baddr
+                                rjmp OC1BInt
+.org OC0Aaddr
+                                rjmp Timer0CompareAInt
+.org URXCaddr
+                                rjmp UartRXInt
+.org UDREaddr
+                                rjmp UartTXInt
+
+                                
+                                //MainProgram
+Start:                          cbi DDRD, 3 //RX
+                                sbi DDRB, 1
+                                sbi DDRD, 5 //debug LED
+                                rcall SetupUART
+                                sei
+                                
+                                ldi R16, 0
+                                sbr R16, (1 << 0) //enable echo
+                                ldi ZL, low(StatusByte)
+                                ldi ZH, high(StatusByte)
+                                st Z, R16 //set initial status
+                                
+                                rcall WaitForStart
+                                
+_mainloop:                      
+                                rcall ParseCommand
+                                rjmp _mainloop
+                                
+                                //UART Setup
+SetupUART:                      ldi R16, 1 << U2X0
+                                sts UCSR0A, R16
+                                ldi R16, (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0) | (1 << TXCIE0)
+                                sts UCSR0B, R16
+                                ldi R16, 3 << UCSZ00
+                                sts UCSR0C, R16
+                                ldi R16, high(12)
+                                sts UBRR0H,  R16
+                                ldi R16, low(12)
+                                sts UBRR0L, R16
+                                ldi R16, 0x00
+                                sts UartRXRBPtrRead, R16
+                                sts UartRXRBPtrWrite, R16
+                                sts UartTXRBPtrRead, R16
+                                sts UartTXRBPtrWrite, R16
+                                ret
+                                
+                                //Process init UART sequence
+WaitForStart:                   ldi R16, 's'
+                                rcall WriteUARTTxBufferNonBlocking
+                                rcall PrintNLUart
+_sym1:                          rcall ReadUARTRxBufferBlocking
+                                cpi R16, 's'
+                                brne _sym1
+_sym2:                          rcall ReadUARTRxBufferBlocking
+                                cpi R16, 0x0A
+                                breq _end
+                                cpi R16, 0x0D
+                                breq _sym2 //Wait for LF after CR
+                                rjmp _sym1
+_end:                           ldi R16, 'o'
+                                rcall WriteUARTTxBufferNonBlocking
+                                rcall PrintNLUart
+                                ret
+                                
+                                //Parse, process, and answer command from uart
+ParseCommand:                   
+                                ldi ZL, low(UartCommandBuffer)
+                                ldi ZH, high(UartCommandBuffer)
+                                ldi R17, 0
+                                
+_read_sym:                      rcall ReadUARTRxBufferBlocking
+                                cpi R16, 0x0D //CARRIAGE RETURN
+                                breq _read_sym
+                                cpi R16, 0x0A //LINE FEED
+                                breq _exit_read_sym
+                                cpi R16, 0x7F //DEL
+                                breq _erase_read_sym
+                                cpi R16, 0x08 //BACKSPACE
+                                breq _erase_read_sym
+                                st Z+, R16
+                                cpi R17, 4
+                                breq _exit_read_sym
+                                inc R17
+                                rjmp _read_sym
+                                
+_erase_read_sym:                cpi R17, 0
+                                breq _read_sym //dont try to erase 0 symbols
+                                dec R17
+                                sbiw ZL, 1
+                                rjmp _read_sym
+                                
+_exit_read_sym:                 ldi ZL, low(UartCommandBuffer)
+                                ldi ZH, high(UartCommandBuffer)
+                                cpi R17, 1
+                                breq _sym_count_1
+                                cpi R17, 2
+                                breq _sym_count_2
+                                rjmp _sym_cmd_err
+_sym_count_1:                   ld R16, Z
+                                cpi R16, 'w'
+                                breq _sym_cmd_write
+                                cpi R16, '?'
+                                breq _sym_cmd_help
+                                cpi R16, 'a'
+                                breq _sym_cmd_ack
+                                rjmp _sym_cmd_err
+_sym_count_2:                   ld R16, Z+
+                                cpi R16, 'r'
+                                breq _sym_count_2_r
+                                cpi R16, 'e'
+                                breq _sym_count_2_e
+                                rjmp _sym_cmd_err
+_sym_count_2_r:                 ld R16, Z
+                                cpi R16, 'e'
+                                breq _sym_cmd_recvon
+                                cpi R16, 'd'
+                                breq _sym_cmd_recvoff
+                                rjmp _sym_cmd_err
+_sym_count_2_e:                 ld R16, Z
+                                cpi R16, 'e'
+                                breq _sym_cmd_echoon
+                                cpi R16, 'd'
+                                breq _sym_cmd_echooff
+                                rjmp _sym_cmd_err
+_sym_cmd_write:                 
+                                rcall CommandWrite
+                                rjmp _sym_process_end
+_sym_cmd_recvon:                
+                                rcall CommandRecvOn
+                                rjmp _sym_process_end
+_sym_cmd_recvoff:               
+                                rcall CommandRecvOff
+                                rjmp _sym_process_end
+_sym_cmd_echoon:                
+                                rcall CommandEchoOn
+                                rjmp _sym_process_end
+_sym_cmd_echooff:               
+                                rcall CommandEchoOff
+                                rjmp _sym_process_end
+                                
+_sym_cmd_help:                  rcall CommandHelp
+                                rjmp _sym_process_end
+                                
+_sym_cmd_ack:                   rcall CommandAck
+                                rjmp _sym_process_end
+                                
+_sym_cmd_err:                   ldi R16, 'e'
+                                rcall WriteUARTTxBufferNonBlocking
+                                rcall PrintNLUart
+_sym_process_end:
+                                ret
+
+CommandWrite:                   ldi R16, 'o'
+                                rcall WriteUARTTxBufferNonBlocking
+                                rcall PrintNLUart
+                                ldi ZL, low(UartCommandBuffer)
+                                ldi ZH, high(UartCommandBuffer) //write text to same buffer
+                                ldi R17, 0 //symbol count
+_read_sym:                      rcall ReadUARTRxBufferBlocking
+                                cpi R16, 0x0D //CARRIAGE RETURN
+                                breq _read_sym
+                                cpi R16, 0x0A //LINE FEED
+                                breq _exit_read_sym
+                                cpi R16, 0x7F //DEL
+                                breq _erase_read_sym
+                                cpi R16, 0x08 //BACKSPACE
+                                breq _erase_read_sym
+                                st Z+, R16
+                                cpi R17, 80
+                                breq _exit_read_sym
+                                inc R17
+                                rjmp _read_sym
+_erase_read_sym:                cpi R17, 0
+                                breq _read_sym //dont try to erase 0 symbols
+                                dec R17
+                                sbiw ZL, 1
+                                rjmp _read_sym
+_exit_read_sym:                 ldi R16, 'c'
+                                rcall WriteUARTTxBufferNonBlocking
+                                rcall PrintNLUart
+                                mov R18, R17
+                                ldi ZL, low(UartCommandBuffer)
+                                ldi ZH, high(UartCommandBuffer)
+_print_string_loop:             ld R16, Z+
+                                rcall WriteUARTTxBufferNonBlocking
+                                dec R18
+                                brne _print_string_loop
+                                rcall PrintNLUart
+_wait_ack:                      rcall ReadUARTRxBufferBlocking
+                                cpi R16, 0x0D //CARRIAGE RETURN
+                                breq _wait_ack
+                                cpi R16, 0x0A //LINE FEED
+                                breq _wait_ack_end
+                                mov R18, R16
+                                rjmp _wait_ack
+_wait_ack_end:                  cpi R18, 's'
+                                brne _end
+                                rcall GenerateTxBufferData
+                                ldi R16, 't'
+                                rcall WriteUARTTxBufferNonBlocking
+                                rcall PrintNLUart
+                                rcall StartTransmitting
+_end:                           ret
+
+CommandAck:                     ldi R16, 'o'
+                                rcall WriteUARTTxBufferNonBlocking
+                                rcall PrintNLUart
+                                rcall GenerateTxBufferACK
+                                ldi R16, 't'
+                                rcall WriteUARTTxBufferNonBlocking
+                                rcall PrintNLUart
+                                rcall StartTransmitting
+                                ret
+
+CommandRecvOn:                  ldi R16, 'o'
+                                rcall WriteUARTTxBufferNonBlocking
+                                rcall PrintNLUart
+                                ldi R16, (1 << ISC10) //INTERRUPT SETUP
+                                sts EICRA, R16
+                                ldi R16, (1 << INT1)
+                                out EIMSK, R16                  //Enable interrupt on pin INT1(D3)
+                                ldi R16, 0 //TIMER SETUP
+                                sts TCCR1A, R16
+                                ldi R16, (1 << WGM12) | (1 << CS11) //FClk/8
+                                sts TCCR1B, R16
+                                ldi R16, high(750)
+                                sts OCR1AH, R16 //When timer reached 750, it's 0.5 ms
+                                ldi R16, low(750)
+                                sts OCR1AL, R16
+                                ldi R16, high(375)
+                                sts OCR1BH, R16 //Call OCR1B interrupt when timer reaches half
+                                ldi R16, low(375)
+                                sts OCR1BL, R16
+                                ldi R16, 0
+                                ldi R25, 0
+                                clr R9
+                                sts (ModemRXTXBufferLen+0), R16 //Clear all pointers
+                                ldi R16, (1 << OCIE1B)
+                                sts TIMSK1, R16 //Enable timer 1 OCR1B interrupt
+                                ldi XL, low(StatusByte)
+                                ldi XH, high(StatusByte)
+                                ld R16, X
+                                sbr R16, (1 << 1) //Set receiver status
+                                st X, R16
+                                ret
+
+CommandRecvOff:                 ldi R16, 'o'
+                                rcall WriteUARTTxBufferNonBlocking
+                                rcall PrintNLUart
+                                ldi R16, 0
+                                sts TIMSK1, R16 //Disable timer 1 OCR1B interrupt
+                                ldi XL, low(StatusByte)
+                                ldi XH, high(StatusByte)
+                                ld R16, X
+                                cbr R16, (1 << 1) //Set receiver status
+                                st X, R16
+                                ret
+
+CommandEchoOn:                  
+                                ldi R16, 'o'
+                                rcall WriteUARTTxBufferNonBlocking
+                                rcall PrintNLUart
+                                ldi XL, low(StatusByte)
+                                ldi XH, high(StatusByte)
+                                ld R16, X
+                                sbr R16, (1 << 0)
+                                st X, R16
+                                ret
+
+CommandEchoOff:                 ldi R16, 'o'
+                                rcall WriteUARTTxBufferNonBlocking
+                                rcall PrintNLUart
+                                ldi XL, low(StatusByte)
+                                ldi XH, high(StatusByte)
+                                ld R16, X
+                                cbr R16, (1 << 0)
+                                st X, R16
+                                ret
+
+CommandHelp:                    ldi ZL, low(Str_Help * 2)
+                                ldi ZH, high(Str_Help * 2)
+_printLoop:                     lpm R16, Z+
+                                cpi R16, 0
+                                breq _printEnd
+                                rcall WriteUARTTxBufferNonBlocking
+                                rjmp _printLoop
+_printEnd:                      ret
+
+                                //Print newline to UART.
+PrintNLUart:                    ldi R16, 0x0A
+                                rcall WriteUARTTxBufferNonBlocking
+                                ldi R16, 0x0D
+                                rcall WriteUARTTxBufferNonBlocking
+                                ret
+                                
+                                //Read UART rx buffer, block until symbol will appear. Symbol in R16. Print it back if echo enabled
+ReadUARTRxBufferBlocking:
+_loopA:                         lds XL, UartRXRBPtrRead
+                                lds R16, UartRXRBPtrWrite
+                                cp R16, XL
+                                breq _loopA
+                                ldi XH, high(UartRXRingBuff)
+                                //Ignoring XL because of good buffer address(0x100)
+                                ld R16, X
+                                inc XL
+                                sts UartRXRBPtrRead, XL
+                                push R17
+                                ldi XL, low(StatusByte)
+                                ldi XH, high(StatusByte)
+                                ld R17, X
+                                sbrc R17, 0 //if echo bit off, then don't print symbol
+                                rcall WriteUARTTxBufferNonBlocking
+                                pop R17
+                                ret
+                                
+                                //Write R16 to UART tx buffer, overflow=ignored.
+WriteUARTTxBufferNonBlocking:   
+                                push R17
+                                lds R17, UartTXRBPtrRead
+                                lds XL, UartTXRBPtrWrite
+                                ldi XH, high(UartTXRingBuff)
+                                //Ignoring XH because of good buffer address(0x100)
+                                st X, R16
+                                inc XL
+                                cp XL, R17
+                                breq _buff_full
+                                lds R17, UCSR0B                     ;Allow UART UDR Empty interrupt
+                                sbr R17, (1 << UDRIE0)
+                                sts UCSR0B, R17
+                                sts UartTXRBPtrWrite, XL
+_buff_full:                     pop R17
+                                ret
+                                
+                                //Generate TX sequence and put it into RXTXBuffer. Input text = UartCommandBuffer, symbol count = R17
+GenerateTxBufferData:           ldi XH, high(ModemRXTXBuffer)
+                                ldi XL, low(ModemRXTXBuffer)
+                                push R17 //save for later use
+                                
+                                ldi R16, 16
+                                ldi R17, 0
+_gen_preamble:                  st X+, R17
+                                dec R16
+                                brne _gen_preamble //Generate 16-bit preamble of 0's
+                                
+                                ldi R16, 8
+                                ldi R17, byte4(SYNCWORD_CONST)
+_gen_sync_4:                    clr R18
+                                lsl R17
+                                brcc _gen_sync_4_skip
+                                ldi R18, 1
+_gen_sync_4_skip:               st X+, R18
+                                dec R16
+                                brne _gen_sync_4
+                                
+                                ldi R16, 8
+                                ldi R17, byte3(SYNCWORD_CONST)
+_gen_sync_3:                    clr R18
+                                lsl R17
+                                brcc _gen_sync_3_skip
+                                ldi R18, 1
+_gen_sync_3_skip:               st X+, R18
+                                dec R16
+                                brne _gen_sync_3
+                                
+                                ldi R16, 8
+                                ldi R17, high(SYNCWORD_CONST)
+_gen_sync_h:                    clr R18
+                                lsl R17
+                                brcc _gen_sync_h_skip
+                                ldi R18, 1
+_gen_sync_h_skip:               st X+, R18
+                                dec R16
+                                brne _gen_sync_h
+                                
+                                ldi R16, 8
+                                ldi R17, low(SYNCWORD_CONST)
+_gen_sync_l:                    clr R18
+                                lsl R17
+                                brcc _gen_sync_l_skip
+                                ldi R18, 1
+_gen_sync_l_skip:               st X+, R18
+                                dec R16
+                                brne _gen_sync_l
+                                //Load 32-bit sync word from program memory
+                                
+                                ldi R16, 8
+                                ldi R17, 0
+_gen_type:                      st X+, R17
+                                dec R16
+                                brne _gen_type  //Generate 8 bits of type(data)
+                                
+                                pop R17 //restore length
+                                push R17 //save for later use
+                                inc R17
+                                inc R17 //add 2 checksum bytes to length
+                                ldi R16, 8
+_gen_len_bit:                   lsl R17
+                                brcs _gen_len_bit_1
+                                //Bit 0
+                                clr R19
+                                ldi R18, 8
+_gen_len_bit_repeat0:           st X+, R19
+                                dec R18
+                                brne _gen_len_bit_repeat0
+                                rjmp _gen_len_bit_repeat_end
+_gen_len_bit_1:                 //Bit 1
+                                ldi R19, 1
+                                ldi R18, 8
+_gen_len_bit_repeat1:           st X+, R19
+                                dec R18
+                                brne _gen_len_bit_repeat1
+_gen_len_bit_repeat_end:
+                                dec R16
+                                brne _gen_len_bit //Generate 64 bits of length(length=R17+2CHECKSUM)
+                                
+                                pop R17 //restore length
+                                push R17 //save for later use
+                                ldi ZL, low(UartCommandBuffer)
+                                ldi ZH, high(UartCommandBuffer)
+_gen_data:                      ld R19, Z+
+
+                                ldi R16, 8
+_gen_data_sym:                  lsl R19
+                                brcs _gen_data_sym_cs
+                                ldi R18, 0
+                                rjmp _gen_data_sym_skip
+_gen_data_sym_cs:               ldi R18, 1
+_gen_data_sym_skip:             st X+, R18
+                                dec R16
+                                brne _gen_data_sym
+                                dec R17
+                                brne _gen_data //Generate R17*8 bits of data from UartCommandBuffer
+                                
+                                ldi R16, 16
+                                ldi R17, 0
+_gen_checksum:                  st X+, R17
+                                dec R16
+                                brne _gen_checksum //Generate 16 bits checksum(just zeroes)
+                                
+                                pop R17 //restore length
+                                ldi R16, 8
+                                mul R17, R16 //get number of bits
+                                mov R16, R1 //high
+                                mov R17, R0 //low
+                                ldi R19, low(136)
+                                add R17, R19
+                                ldi R19, high(136)
+                                adc R16, R19 //add size of const parts(16(preamble)+32(sw)+8(type)+64(len)+16(checksum)
+                                
+                                sts (ModemRXTXBufferLen+0), R16
+                                sts (ModemRXTXBufferLen+1), R17 //Save number of data bits in buffer
+                                ret
+                                
+                                //Generate ACK packet
+GenerateTxBufferACK:            ldi XH, high(ModemRXTXBuffer)
+                                ldi XL, low(ModemRXTXBuffer)
+                                
+                                ldi R16, 16
+                                ldi R17, 0
+_gen_preamble:                  st X+, R17
+                                dec R16
+                                brne _gen_preamble //Generate 16-bit preamble of 0's
+                                
+                                ldi R16, 8
+                                ldi R17, byte4(SYNCWORD_CONST)
+_gen_sync_4:                    clr R18
+                                lsl R17
+                                brcc _gen_sync_4_skip
+                                ldi R18, 1
+_gen_sync_4_skip:               st X+, R18
+                                dec R16
+                                brne _gen_sync_4
+                                
+                                ldi R16, 8
+                                ldi R17, byte3(SYNCWORD_CONST)
+_gen_sync_3:                    clr R18
+                                lsl R17
+                                brcc _gen_sync_3_skip
+                                ldi R18, 1
+_gen_sync_3_skip:               st X+, R18
+                                dec R16
+                                brne _gen_sync_3
+                                
+                                ldi R16, 8
+                                ldi R17, high(SYNCWORD_CONST)
+_gen_sync_h:                    clr R18
+                                lsl R17
+                                brcc _gen_sync_h_skip
+                                ldi R18, 1
+_gen_sync_h_skip:               st X+, R18
+                                dec R16
+                                brne _gen_sync_h
+                                
+                                ldi R16, 8
+                                ldi R17, low(SYNCWORD_CONST)
+_gen_sync_l:                    clr R18
+                                lsl R17
+                                brcc _gen_sync_l_skip
+                                ldi R18, 1
+_gen_sync_l_skip:               st X+, R18
+                                dec R16
+                                brne _gen_sync_l
+                                //Load 32-bit sync word from program memory
+                                
+                                ldi R16, 8
+                                ldi R17, 1
+_gen_type:                      st X+, R17
+                                dec R16
+                                brne _gen_type  //Generate 8 bits of type(ack)
+                                
+                                ldi R16, high(56)
+                                ldi R17, low(56)
+                                sts (ModemRXTXBufferLen+0), R16
+                                sts (ModemRXTXBufferLen+1), R17 //Save number of ack bits in buffer
+                                ret
+                                
+                                //Transmit pregenerated sequence from RXTXBuffer
+StartTransmitting:              //Timer0 setup
+                                ldi R16, (1 <<  WGM01) //CTC Mode
+                                out TCCR0A, R16
+                                ldi R16, (1 << CS01) | (1 << CS00) //FClk/64
+                                out TCCR0B, R16
+                                ldi R16, 94
+                                out OCR0A, R16
+                                ldi R16, 0  //Current phase = 0
+                                mov R9, R16
+                                ldi R20, 0 //Current bit half - first
+                                mov R10, R16
+                                mov R11, R16 //Reset current pointer
+                                ldi R16, (1 << OCIE0A) //Enable timer compare A interrupt
+                                sts TIMSK0, R16
+                                ldi XL, low(StatusByte)
+                                ldi XH, high(StatusByte)
+                                ld R16, X
+                                sbrs R16, 1
+                                rjmp _end
+                                //receiver enabled, stop it when transmitting
+                                ldi R16, 0
+                                sts TIMSK1, R16 //Disable timer 1 OCR1B interrupt
+_end:                           
+                                ret
+                                
+                                //UART Rx interrupt
+UartRXInt:                      in R15, SREG
+                                lds YL, UartRXRBPtrWrite
+                                lds R13, UartRXRBPtrRead
+                                lds R12, UDR0
+                                ldi YH, high(UartRXRingBuff) //Ignoring YH because of good RXbuff address(0x100)
+                                st Y, R12
+                                inc YL
+                                cp R13, YL
+                                breq _end
+                                sts UartRXRBPtrWrite, YL
+_end:                           out SREG, R15
+                                reti
+
+                                //UART Tx Buffer Empty interrupt
+UartTXInt:                      in R15, SREG
+                                lds R14, UartTXRBPtrWrite
+                                lds YL, UartTXRBPtrRead
+                                ldi YH, high(UartTXRingBuff) 
+                                //Ignoring YH because of good TXbuff address(0x200)
+                                cp R14, YL
+                                brne _writetoUART
+                                push R16
+                                lds R16, UCSR0B
+                                cbr R16, (1 << TXCIE0)
+                                sts UCSR0B, R16
+                                pop R16
+                                rjmp _end
+_writetoUART:                   ld R12, Y
+                                sts UDR0, R12
+                                inc YL
+                                sts UartTXRBPtrRead, YL
+_end:                           out SREG, R15
+                                reti
+                                
+                                //R9 - current phase, R10:R11 - current position.
+Timer0CompareAInt:              in R15, SREG
+                                ldi YH, high(ModemRXTXBuffer)
+                                ldi YL, low(ModemRXTXBuffer)
+                                add YL, R11
+                                adc YH, R10
+                                ld R12, Y //Current bit in R12
+                                
+                                eor R12, R9 //Current phase in R12
+                                tst R20
+                                brne _last_half_bit
+                                sbrc R12, 0
+                                sbi PORTB, 1
+                                sbrs R12, 0
+                                cbi PORTB, 1       //If first half-bit, transmit non-modified and ignore buffer pointer increment
+                                com R20
+                                rjmp _end
+                                
+_last_half_bit:                 //If last half-bit, transmit inverted bit and increment buffer pointer
+                                sbrc R12, 0
+                                cbi PORTB, 1
+                                sbrs R12, 0
+                                sbi PORTB, 1
+                                com R20
+                                mov R9, R12 //Store current phase as previous
+                                
+                                clr R13
+                                ldi YL, 1
+                                add R11, YL //Increment buffer pointer
+                                adc R10, R13
+                                lds R13, (ModemRXTXBufferLen+0) //High
+                                lds R12, (ModemRXTXBufferLen+1) //Low
+                                cp R12, R11
+                                cpc R13, R10
+                                brne _end //If we not reached end of buffer
+                                //We reached end of buffer, disable timer, write to uart
+                                cbi PORTD, 4
+                                clr R9
+                                sts TIMSK0, R9
+                                push R16
+                                push R17
+                                push XH
+                                push XL
+                                ldi R16, 'f'
+                                rcall WriteUARTTxBufferNonBlocking
+                                rcall PrintNLUart
+                                ldi XL, low(StatusByte)
+                                ldi XH, high(StatusByte)
+                                ld R16, X
+                                sbrs R16, 1
+                                rjmp _receiver_disabled
+                                //receiver was enabled before transmitting, re-enable
+                                ldi R16, 0
+                                ldi R25, 0
+                                sts (ModemRXTXBufferLen+0), R16 //Clear all pointers
+                                ldi R16, (1 << OCIE1B)
+                                sts TIMSK1, R16 //Enable timer 1 OCR1B interrupt
+_receiver_disabled:             pop XL
+                                pop XH
+                                pop R17
+                                pop R16
+_end:                           out SREG, R15
+                                reti
+                                
+                                //R9 - previous phase
+OC1BInt:                        in R15, SREG
+                                
+                                
+                                
+                                com R9
+                                breq _kostil_end
+                                
+                                
+                                //Get current
+                                clr R12
+                                sbic PIND, 3
+                                com R12
+                                tst R25
+                                brne _not_syncword //If we have received syncword in the past, we need to receive something else
+                                //4-byte buffer for syncword: R21:R22:R23:R24
+                                cbi PORTD, 2
+                                lsl R24
+                                rol R23
+                                rol R22
+                                rol R21
+                                cp R12, R20
+                                breq _bit_0
+                                //Bit 1
+                                sbr R24, 1<<0
+                                
+                                rjmp _bit_end
+_bit_0:                         //Bit 0
+_bit_end:                       
+                                
+
+                                push R27
+                                push R26
+                                clr R10
+                                ldi R27, low(SYNCWORD_CONST)
+                                eor R27, R24
+                                breq _lowskipSWCheck
+                                ldi R26, 8
+_lowSWCheck:                    lsr R27
+                                brcc _lowSWCheckA
+                                inc R10
+_lowSWCheckA:                   dec R26
+                                brne _lowSWCheck
+_lowskipSWCheck:
+                                ldi R27, high(SYNCWORD_CONST)
+                                eor R27, R23
+                                breq _highskipSWCheck
+                                ldi R26, 8
+_highSWCheck:                   lsr R27
+                                brcc _highSWCheckA
+                                inc R10
+_highSWCheckA:                  dec R26
+                                brne _highSWCheck
+_highskipSWCheck:
+                                ldi R27, byte3(SYNCWORD_CONST)
+                                eor R27, R22
+                                breq _byte3skipSWCheck
+                                ldi R26, 8
+_byte3SWCheck:                  lsr R27
+                                brcc _byte3SWCheckA
+                                inc R10
+_byte3SWCheckA:                 dec R26
+                                brne _byte3SWCheck
+_byte3skipSWCheck:
+                                ldi R27, byte4(SYNCWORD_CONST)
+                                eor R27, R21
+                                breq _byte4skipSWCheck
+                                ldi R26, 8
+_byte4SWCheck:                  lsr R27
+                                brcc _byte4SWCheckA
+                                inc R10
+_byte4SWCheckA:                 dec R26
+                                brne _byte4SWCheck
+                                rjmp _byte4skipSWCheck
+                                
+_kostil_end:                    rjmp _end
+_byte4skipSWCheck:              
+                                mov R26, R10
+                                cpi R26, 2
+                                brcc _cend
+                                
+                                //Got syncword with less than 3 errors! Enter bit-receiving mode
+                                inc R25 //R25 is now containing current receiving byte
+                                clr R21 //And R21 is current bit inside byte
+                                clr R22 //And R22 is temporarily storage for byte being received
+                                clr R23
+_cend:                          
+                                
+                                
+                                pop R26
+                                pop R27
+                                
+                                rjmp _aend
+                                
+_not_syncword:                  
+                                //Receiving some bit of byte
+                                sbi PORTD, 2
+                                lsl R22
+                                cp R12, R20
+                                breq _bitB_0
+                                //Bit 1
+                                sbr R22, 1<<0
+                                rjmp _bitB_end
+_bitB_0:                        //Bit 0
+_bitB_end:                      
+                                inc R21
+                                cpi R21, 8
+                                breq _byte_finished
+                                rjmp _aend
+_byte_finished:                 //Finished byte receiving, process it
+                                
+                                inc R25
+                                brne _byte_timeout
+                                clr R25
+_byte_timeout:                  
+
+                                
+                                //Byte received! In R22
+                                //Byte number in R25: 2-type, 3-11-len, 12-(len+12)-data
+                                //R23 - len
+                                cpi R25, 2
+                                breq _byter_type
+                                cpi R25, 11
+                                brlo _byter_length
+                                rjmp _byter_actual_data
+                                
+_byter_type:                    ldi R21, 8
+                                push R26
+                                clr R26
+_count_bits_type:               lsr R22
+                                brcc _count_bits_type_cc
+                                inc R26
+_count_bits_type_cc:            dec R21
+                                brne _count_bits_type
+                                
+                                cpi R26, 4
+                                pop R26
+                                brlo _byter_type_0
+                                //ACK received, stop receiving bytes
+                                push R16
+                                push R17
+                                push XH
+                                push XL
+                                ldi R16, 'a'
+                                rcall WriteUARTTxBufferNonBlocking
+                                rcall PrintNLUart
+                                pop XL
+                                pop XH
+                                pop R17
+                                pop R16
+                                clr R25
+_byter_type_0:                  
+                                rjmp _byter_end
+                                
+_byter_length:                  ldi R21, 8
+                                push R26
+                                clr R26
+_count_bits:                    lsr R22
+                                brcc _count_bits_cc
+                                inc R26
+_count_bits_cc:                 dec R21
+                                brne _count_bits
+                                
+                                lsl R23
+                                
+                                cpi R26, 4
+                                pop R26
+                                brlo _byter_length_0
+                                sbr R23, (1 << 0)
+_byter_length_0:                
+                                
+                                rjmp _byter_end
+
+_byter_actual_data:             
+                                
+                                push R26
+                                lds R26, ModemRXTXBufferLen
+                                cp R26, R23
+                                breq _byter_actual_data_rcv_end
+                                
+                                clr R21
+                                ldi YH, high(ModemRXTXDataByteBuffer)
+                                ldi YL, low(ModemRXTXDataByteBuffer)
+                                add YL, R26
+                                adc YH, R21
+                                st Y, R22
+                                
+                                
+                                rjmp _byter_actual_data_end
+_byter_actual_data_rcv_end:     //Received all data, stopping
+                                clr R21
+                                
+                                push R16
+                                push R17
+                                push XH
+                                push XL
+                                
+                                ldi YH, high(ModemRXTXDataByteBuffer)
+                                ldi YL, low(ModemRXTXDataByteBuffer)
+                                
+                                ldi R16, 'r'
+                                rcall WriteUARTTxBufferNonBlocking
+                                rcall PrintNLUart
+                                
+_byter_actual_data_rcv_end_pr:  ld R16, Y+
+                                rcall WriteUARTTxBufferNonBlocking
+                                inc R21
+                                cp R21, R23
+                                brne _byter_actual_data_rcv_end_pr
+                                
+                                rcall PrintNLUart
+                                pop XL
+                                pop XH
+                                pop R17
+                                pop R16
+                                
+                                clr R25
+                                ldi R26, 255
+_byter_actual_data_end:         
+                                
+                                inc R26
+                                sts ModemRXTXBufferLen, R26
+                                pop R26
+                                rjmp _byter_end
+
+_byter_end:                     
+
+                                clr R21
+                                
+_aend:                          mov R20, R12 //Save current phase to previous
+                                
+_end:
+                                out SREG, R15
+                                reti
+                                
+INT1Int:                        in R15, SREG
+                                clr R14
+                                sts TCNT1H, R14
+                                sts TCNT1L, R14
+                                out SREG, R15
+                                reti
+
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+Str_Help:                       .db "Help: \n\rw - enter text to transmit\n\rre - enable receiving\n\rrd - disable receiving\n\ree - enable echo\n\red - disable echo\n\r\0"
+
+Str_Info:                       .db "HF modem firmware. Author: https://github.com/cropinghigh\0"
