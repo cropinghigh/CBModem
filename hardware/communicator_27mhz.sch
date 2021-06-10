@@ -2884,7 +2884,7 @@ NoConn ~ 4550 6950
 Wire Wire Line
 	3650 7450 5550 7450
 $Comp
-L Custom:SA612 U2
+L communicator_27mhz-rescue:SA612-Custom U2
 U 1 1 60FE7EC4
 P 4150 6800
 F 0 "U2" H 4150 7265 50  0000 C CNN
@@ -2924,7 +2924,7 @@ Wire Wire Line
 Wire Wire Line
 	3750 6850 3650 6850
 $Comp
-L Custom:SN74LVC1G08 U8
+L communicator_27mhz-rescue:SN74LVC1G08-Custom U8
 U 1 1 6182B23A
 P 10700 1950
 F 0 "U8" H 10400 2050 50  0000 L CNN
@@ -2935,7 +2935,7 @@ F 3 "https://www.ti.com/lit/ds/symlink/sn74lvc1g08.pdf" H 10700 1950 50  0001 C 
 	1    0    0    -1  
 $EndComp
 $Comp
-L Custom:SN74LVC1G08 U8
+L communicator_27mhz-rescue:SN74LVC1G08-Custom U8
 U 2 1 6182D53E
 P 12750 4750
 F 0 "U8" H 12750 5075 50  0000 C CNN
@@ -3142,6 +3142,6 @@ F 1 "2T:8T" H 2900 6450 50  0000 C CNN
 F 2 "Custom_pcb:Chinese_inductor" H 3100 6450 50  0001 C CNN
 F 3 "~" H 3100 6450 50  0001 C CNN
 	1    3100 6450
-	1    0    0    1   
+	1    0    0    -1  
 $EndComp
 $EndSCHEMATC
