@@ -8,6 +8,8 @@
 //1-4 bytes
 #define SYNCWORD_CONST 0b11011000111101000010100011010011
 
+#define SI5351_I2C_ADDR 0b1100000 //si5351 addr
+
 const char strAbout[] = "HF modem firmware. Author: https://github.com/cropinghigh";
 
 const char strHelp[] = "Help: \n\rw - enter text to transmit\n\rre - enable receiving\n\rrd - disable receiving\n\ree - enable echo\n\red - disable echo\n\r";
@@ -58,7 +60,7 @@ void writeToUart(char c) {
 }
 
 //Print uint to UART as decimal number
-void printUIntToUart(unsigned int v) {
+void writeUIntToUart(unsigned int v) {
     char a[32];
     itoa(v, a, 10);
     for(int i = 0; i < 32; i++) {
@@ -163,7 +165,7 @@ _error:
     for(int i = 0; i < sizeof(strI2CError); i++) {
         writeToUart(strI2CError[i]);
     }
-    printUIntToUart((TWSR & 0xf8)); writeNLUart();
+    writeUIntToUart((TWSR & 0xf8)); writeNLUart();
     return false;
 }
 
@@ -208,7 +210,7 @@ _error:
     for(int i = 0; i < sizeof(strI2CError); i++) {
         writeToUart(strI2CError[i]);
     }
-    printUIntToUart((TWSR & 0xf8));writeNLUart();
+    writeUIntToUart((TWSR & 0xf8)); writeNLUart();
     return false;
 }
 
@@ -216,24 +218,23 @@ _error:
 void setupSI5351() {
     TWSR |= (0b01 << 0); //prescaler = 4
     TWBR = 13; //100 kHz bus speed
-    uint8_t addr = 0b1100000; //si5351 addr
     uint8_t buffer[32];
-    syncI2CRead(addr, 0, 1, buffer);
+    syncI2CRead(SI5351_I2C_ADDR, 0, 1, buffer);
     while(((buffer[0] & (1 << 7)) >> 7)) {
-        syncI2CRead(addr, 0, 1, buffer); //wait for device initialization complete
+        syncI2CRead(SI5351_I2C_ADDR, 0, 1, buffer); //wait for device initialization complete
     }
     buffer[0] = 0xff;
-    syncI2CWrite(addr, 3, 1, (uint8_t[]){0xff}); //disable all CLKs outputs
+    syncI2CWrite(SI5351_I2C_ADDR, 3, 1, (uint8_t[]){0xff}); //disable all CLKs outputs
     buffer[0] = 0x80;
     for(uint8_t reg_addr = 16; reg_addr < 24; reg_addr++) {
-        syncI2CWrite(addr, reg_addr, 1, (uint8_t[]){0x80}); //write 0x80 to regs 16-23(powerdown all)
+        syncI2CWrite(SI5351_I2C_ADDR, reg_addr, 1, (uint8_t[]){0x80}); //write 0x80 to regs 16-23(powerdown all)
     }
     //Write PLLs/multisynths data
     //CLK0=27.135.000M, CLK1=26.680.000M, CLKERROR = +13 kHz
     //PLLA multiplier = 28, int mode(F=700M); MSNA_P1=3072, MSNA_P2=0, MSNA_P3=0, FBA_INT=1
     //Multisynth0 divider = 25 + 809306/1000000(F~27.122000 + 13 kHz)
     //Multisynth1 divider = 26 + 249671/1000000(F~26.667000 + 13 kHz);
-    syncI2CWrite(addr, 22, 1, (uint8_t[]){0b11000000}); //FBA_INT=1
+    syncI2CWrite(SI5351_I2C_ADDR, 22, 1, (uint8_t[]){0b11000000}); //FBA_INT=1
     #define MSNA_a 28
     #define MS0_a 25
     #define MS0_b 809306.0
@@ -248,14 +249,14 @@ void setupSI5351() {
     uint32_t MS1_P1 = (128 * MS1_a) + floor(128.0f * (MS1_b / MS1_c)) - 512;
     uint32_t MS1_P2 = (128 * MS1_b) - (MS0_c * floor(128.0f * (MS1_b / MS1_c)));
     uint32_t MS1_P3 = MS1_c;
-    syncI2CWrite(addr, 26, 2, (uint8_t[]){0x00, 0x00}); //MSNA_P3[15:8] ; MSNA_P3[7:0]
-    syncI2CWrite(addr, 28, 3, (uint8_t[]){
+    syncI2CWrite(SI5351_I2C_ADDR, 26, 2, (uint8_t[]){0x00, 0x00}); //MSNA_P3[15:8] ; MSNA_P3[7:0]
+    syncI2CWrite(SI5351_I2C_ADDR, 28, 3, (uint8_t[]){
         ((MSNA_P1 & (3L << 16L)) >> 16L),
         ((MSNA_P1 & (0xffL << 8L)) >> 8L),
         ((MSNA_P1 & (0xffL << 0L)) >> 0L)
     }); //MSNA_P1[17:16] ; MSNA_P1[15:8] ; MSNA_P1[7:0]
-    syncI2CWrite(addr, 31, 3, (uint8_t[]){0x00, 0x00, 0x00}); //MSNA_P3[19:16];MSNA_P2[19:16] ; MSNA_P2[15:8] ; MSNA_P2[7:0]
-    syncI2CWrite(addr, 42, 8, (uint8_t[]){
+    syncI2CWrite(SI5351_I2C_ADDR, 31, 3, (uint8_t[]){0x00, 0x00, 0x00}); //MSNA_P3[19:16];MSNA_P2[19:16] ; MSNA_P2[15:8] ; MSNA_P2[7:0]
+    syncI2CWrite(SI5351_I2C_ADDR, 42, 8, (uint8_t[]){
         ((MS0_P3 & (0xffL << 8L)) >> 8L),
         ((MS0_P3 & (0xffL << 0L)) >> 0L),
         (((MS0_P1 & (3L << 16L)) >> 16L) | 0b00000000),
@@ -265,7 +266,7 @@ void setupSI5351() {
         ((MS0_P2 & (0xffL << 8L)) >> 8L),
         ((MS0_P2 & (0xffL << 0L)) >> 0L),
     }); //MS0_P3[15:8] ; MS0_P3[7:0] ; R0_DIV[2:0];MS0_DIVBY4[1:0];MS0_P1[17:16] ; MS0_P1[15:8] ; MS0_P1[7:0] ; MS0_P3[19:16];MS0_P2[19:16] ; MS0_P2[15:8] ; MS0_P2[7:0]
-    syncI2CWrite(addr, 50, 8, (uint8_t[]){
+    syncI2CWrite(SI5351_I2C_ADDR, 50, 8, (uint8_t[]){
         ((MS1_P3 & (0xffL << 8L)) >> 8L),
         ((MS1_P3 & (0xffL << 0L)) >> 0L),
         (((MS1_P1 & (3L << 16L)) >> 16L) | 0b00000000),
@@ -275,22 +276,38 @@ void setupSI5351() {
         ((MS1_P2 & (0xffL << 8L)) >> 8L),
         ((MS1_P2 & (0xffL << 0L)) >> 0L),
     }); //MS1_P3[15:8] ; MS1_P3[7:0] ; R1_DIV[2:0];MS1_DIVBY4[1:0];MS1_P1[17:16] ; MS1_P1[15:8] ; MS1_P1[7:0] ; MS1_P3[19:16];MS1_P2[19:16] ; MS1_P2[15:8] ; MS1_P2[7:0]
-    syncI2CWrite(addr, 15, 1, (uint8_t[]){0x00}); //select xtal source for both PLLs
-    syncI2CWrite(addr, 16, 1, (uint8_t[]){0b00001111}); //configure CLK0(PLLA)
-    syncI2CWrite(addr, 17, 1, (uint8_t[]){0b00001111}); //configure CLK1(PLLA)
-    syncI2CWrite(addr, 24, 1, (uint8_t[]){0b00000000}); //configure CLKs disable state
-    syncI2CWrite(addr, 177, 1, (uint8_t[]){0xAC}); //soft reset PLLs
-    syncI2CWrite(addr, 3, 1, (uint8_t[]){0b11111100}); //enable CLK0,CLK1
+    syncI2CWrite(SI5351_I2C_ADDR, 15, 1, (uint8_t[]){0x00}); //select xtal source for both PLLs
+    syncI2CWrite(SI5351_I2C_ADDR, 16, 1, (uint8_t[]){0b00001111}); //configure CLK0(PLLA)
+    syncI2CWrite(SI5351_I2C_ADDR, 17, 1, (uint8_t[]){0b00001111}); //configure CLK1(PLLA)
+    syncI2CWrite(SI5351_I2C_ADDR, 24, 1, (uint8_t[]){0b00000000}); //configure CLKs disable state
+    syncI2CWrite(SI5351_I2C_ADDR, 177, 1, (uint8_t[]){0xAC}); //soft reset PLLs
+    syncI2CWrite(SI5351_I2C_ADDR, 3, 1, (uint8_t[]){0b11111101}); //disable CLK0,CLK1
 }
 
 //Enable/Disable SI5351 clock output for TX
 void SI5351SetTxClk(bool txClk) {
-    //TODO
+    uint8_t curr_state;
+    syncI2CRead(SI5351_I2C_ADDR, 3, 1, &curr_state);
+    if(txClk) {
+        curr_state &= ~(0b1);
+        syncI2CWrite(SI5351_I2C_ADDR, 3, 1, &curr_state); //enable CLK0
+    } else {
+        curr_state |= 0b1;
+        syncI2CWrite(SI5351_I2C_ADDR, 3, 1, &curr_state); //disable CLK0
+    }
 }
 
 //Enable/Disable SI5351 clock output for RX
 void SI5351SetRxClk(bool rxClk) {
-    //TODO
+    uint8_t curr_state;
+    syncI2CRead(SI5351_I2C_ADDR, 3, 1, &curr_state);
+    if(rxClk) {
+        curr_state &= ~(0b10);
+        syncI2CWrite(SI5351_I2C_ADDR, 3, 1, &curr_state); //enable CLK0
+    } else {
+        curr_state |= 0b10;
+        syncI2CWrite(SI5351_I2C_ADDR, 3, 1, &curr_state); //disable CLK0
+    }
 }
 
 //Generate 16 bits of CRC from UART command buffer
@@ -342,6 +359,7 @@ void generateTxBufferData(uint8_t sym_count) {
 //Generate TX buffer with ACK packet
 void generateTxBufferAck() {
     ModemRXTXBufferLen = 0;
+    ModemRXTXBufferPtr = 0;
     for(int i = 0; i < 16; i++) {
         ModemRXTXBuffer[ModemRXTXBufferLen++] = 0; //generate 16 zeroes as preamble
     }
