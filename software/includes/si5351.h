@@ -15,25 +15,25 @@ void si5351_print_i2c_error() {
 }
 
 //Find available divider value to get frequency nearest to given
-void si5351_calculate_divider(float freq, unsigned int& MSx_a, float& MSx_b, float& MSx_c) {
-    MSx_a = 8;
-    MSx_b = 0;
-    MSx_c = 10000;
+void si5351_calculate_divider(float freq, unsigned int* MSx_a, float* MSx_b, float* MSx_c) {
+    *MSx_a = 8;
+    *MSx_b = 0;
+    *MSx_c = 10000;
     //find MSx_a
-    while(MSx_a < 2047) {
-        float calc_val = PLLfreq / (MSx_a);
+    while((*MSx_a) < 2047) {
+        float calc_val = PLLfreq / (*MSx_a);
         if(calc_val < freq) {
             break; //we have found a nearest larger integer 'MSx_a' value!
         }
-        MSx_a++;
+        (*MSx_a)++;
     }
     //find MSx_b
-    while(MSx_b < 10000) {
-        float calc_val = PLLfreq / (a + MSx_b/MSx_c);
+    while((*MSx_b) < 10000) {
+        float calc_val = PLLfreq / ((*MSx_a) + (*MSx_b)/(*MSx_c));
         if(calc_val < freq) {
             break; //we have found a nearest values!
         }
-        MSx_b++;
+        (*MSx_b)++;
     }
 }
 
@@ -44,7 +44,7 @@ bool si5351_set_frequencies(float freq) {
     unsigned int MS0_a = 0;
     float MS0_b = 0;
     float MS0_c = 0;
-    si5351_calculate_divider(freq, MS0_a, MS0_b, MS0_c);
+    si5351_calculate_divider(freq, &MS0_a, &MS0_b, &MS0_c);
     //Form Multisynth configuration buffer
     uint32_t MS0_P1 = (128 * MS0_a) + floor(128.0f * (MS0_b/MS0_c)) - 512;
     uint32_t MS0_P2 = (128 * MS0_b) - (MS0_c * floor(128.0f * (MS0_b/MS0_c)));
@@ -67,7 +67,7 @@ bool si5351_set_frequencies(float freq) {
 }
 
 //Initialize Si5351 device
-bool si5351_setup(uint8_t address) {
+bool si5351_setup() {
     uint8_t buffer[8] = {0xff};
     while(buffer[0] & ( 1 << 7)) { if(!i2c_sync_read(SI5351_I2C_ADDR, 0, 1, buffer)) {si5351_print_i2c_error(); return false;} }
     if(!i2c_sync_write(SI5351_I2C_ADDR, 3, 1, (uint8_t[]){0xff})) {si5351_print_i2c_error(); return false;} //disable all CLKs outputs

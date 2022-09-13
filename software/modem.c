@@ -5,15 +5,10 @@
 #include <avr/interrupt.h>
 #include <util/delay.h>
 
+#include "includes/uart.h"
 #include "includes/i2c.h"
 #include "includes/si5351.h"
-#include "includes/uart.h"
 #include "includes/dsp.h"
-
-//1-4 bytes
-#define SYNCWORD_CONST 0b11011000111101000010100011010011
-
-#define SI5351_I2C_ADDR 0b1100000 //si5351 addr
 
 const char strAbout[] = "HF modem firmware. Author: https://github.com/cropinghigh";
 

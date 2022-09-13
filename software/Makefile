@@ -1,7 +1,8 @@
-all: modem.c
+.PHONY : all
+all: modem
 
-modem.c:
-	avr-gcc -Wall -O3 -mmcu=atmega328p "modem.c" -o "modem.o"
+modem: modem.c
+	avr-gcc --param=min-pagesize=0 -Wall -O2 -mmcu=atmega328p "modem.c" -o "modem.o"
 flash:
 	avr-objcopy -j .text -j .data -O ihex "modem.o" "modem.hex"
 	avrdude -p m328p -c usbasp -U "flash:w:modem.hex:i"

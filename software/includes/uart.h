@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdlib.h>
+
 volatile char UARTRxRingBuff[256];
 volatile uint8_t UARTRxRingBuffReadPtr = 0;
 volatile uint8_t UARTRxRingBuffWritePtr = 0;
@@ -13,7 +15,7 @@ void uart_setup() {
     UCSR0A = (1 << U2X0); //double the USART transmission speed
     UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0) | (1 << UDRIE0); //enable transmitter; enable receiver; enable rx complete interrupt
     UCSR0C = (3 << UCSZ00); //8-bit character size
-    static_assert((F_CPU == 12000000UL), "CPU frequency is not 12M!");
+    _Static_assert((F_CPU == 12000000UL), "CPU frequency is not 12M!");
     UBRR0 = 12; //115200 b/s while F_CPU==12M
     UARTRxRingBuffReadPtr = UARTRxRingBuffWritePtr = UARTTxRingBuffReadPtr = UARTTxRingBuffWritePtr = 0;
     UARTechoenabled = true;
