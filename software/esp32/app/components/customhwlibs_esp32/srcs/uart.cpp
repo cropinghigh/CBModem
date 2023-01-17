@@ -1,8 +1,11 @@
 #include "uart.h"
 
-chl_uart_dma::chl_uart_dma(int num, int baudrate) {
+chl_uart_dma::chl_uart_dma(int num, int baudrate, int rxdgpio, int txdgpio) {
     assert(num == 0 || num == 1);
     _number = num;
+    _baudrate = baudrate;
+    _rxdgpio = rxdgpio;
+    _txdgpio = txdgpio;
     _xTxLinksQueue = xQueueCreate(DMA_UART_TX_QUEUE_CNT, sizeof(lldesc_t));
     if(_xTxLinksQueue == NULL) {
         printf("UART%d DMA ERROR: NOT ENOUGH MEMORY FOR TX LINKS QUEUE\r\n", _number);
@@ -39,35 +42,12 @@ chl_uart_dma::chl_uart_dma(int num, int baudrate) {
         return;
     }
 
-    //perform default UART configuration: 1 stop bit; 8 data bits; no flow control; 96 bytes FIFO threshold; using APB clock(assuming it's constant)
-    REG_WRITE(UART_CONF0_REG(_number), UART_TICK_REF_ALWAYS_ON | (0b01 << UART_STOP_BIT_NUM_S) | (0b11 << UART_BIT_NUM_S));
-    REG_WRITE(UART_CONF1_REG(_number), (0x60 << UART_RXFIFO_FULL_THRHD_S) | (0x60 << UART_TXFIFO_EMPTY_THRHD_S));
-    int intergral_divider = ((APB_CLK_FREQ+baudrate/2) / baudrate) & UART_CLKDIV_V;
-    int decimal_divider = ((((APB_CLK_FREQ+baudrate/2) % baudrate)*10 + baudrate/2) / baudrate) & UART_CLKDIV_FRAG_V;
-    REG_WRITE(UART_CLKDIV_REG(_number), (intergral_divider << UART_CLKDIV_S) | (decimal_divider << UART_CLKDIV_FRAG_S));
-    REG_WRITE(UART_FLOW_CONF_REG(_number), 0);
-    REG_WRITE(UART_SLEEP_CONF_REG(_number), (0xF0 << UART_ACTIVE_THRESHOLD_S));
-    REG_WRITE(UART_IDLE_CONF_REG(_number), (0x00A << UART_TX_BRK_NUM_S) | (0x010 << UART_TX_IDLE_NUM_S) | (0x1FF << UART_RX_IDLE_THRHD_S));
-    REG_WRITE(UART_RS485_CONF_REG(_number), 0);
-    REG_WRITE(UART_AUTOBAUD_REG(_number), (0x010 << UART_GLITCH_FILT_S));
-    REG_WRITE(UART_MEM_CONF_REG(_number), (0x01 << UART_RX_SIZE_S) | (0x01 << UART_TX_SIZE_S));
-    REG_WRITE(UART_INT_ENA_REG(_number), 0);
+    _reset_module();
 
-    //DMA config
-    periph_module_enable((_number == 0) ? PERIPH_UHCI0_MODULE : PERIPH_UHCI1_MODULE); //enable UDMA clk(sets DPORT_UHCIx_RST low and DPORT_UHCIx_CLK_EN high)
-    REG_SET_BIT(UHCI_CONF0_REG(_number), UHCI_CLK_EN);
-    REG_WRITE(UHCI_CONF0_REG(_number), UHCI_CLK_EN | UHCI_IN_RST | UHCI_OUT_RST | ((_number == 0) ? UHCI_UART0_CE : UHCI_UART1_CE) | UHCI_UART_IDLE_EOF_EN);
-    REG_CLR_BIT(UHCI_CONF0_REG(_number), UHCI_IN_RST | UHCI_OUT_RST);
-    REG_WRITE(UHCI_CONF1_REG(_number), (100 << UHCI_DMA_INFIFO_FULL_THRS_S));
-    REG_WRITE(UHCI_ESCAPE_CONF_REG(_number), 0);
-
-    REG_WRITE(UHCI_DMA_IN_LINK_REG(_number), ((uint32_t)(&(_chl_uhci_dma_inlinks[0])) << UHCI_INLINK_ADDR_S) & UHCI_INLINK_ADDR_V);
-    REG_WRITE(UHCI_DMA_OUT_LINK_REG(_number), ((uint32_t)(_chl_uhci_dma_outlink) << UHCI_OUTLINK_ADDR_S) & UHCI_OUTLINK_ADDR_V);
-    if(esp_intr_alloc((_number == 0) ? ETS_UHCI0_INTR_SOURCE : ETS_UHCI1_INTR_SOURCE, 0, _uhci_intr_hdlr, this, &_uhci_intr_hdl) != ESP_OK) {
+    if(esp_intr_alloc((_number == 0) ? ETS_UHCI0_INTR_SOURCE : ETS_UHCI1_INTR_SOURCE, ESP_INTR_FLAG_IRAM, _uhci_intr_hdlr, this, &_uhci_intr_hdl) != ESP_OK) {
         printf("UART%d DMA ERROR: ESP INTR ALLOC FAIL\r\n", _number);
         return;
     }
-    REG_WRITE(UHCI_INT_ENA_REG(_number), 0);
     REG_WRITE(UHCI_INT_CLR_REG(_number), 0b1111111111111111);
 
     for(int i = 0; i < DMA_UART_RX_BUFF_CNT; i++) {
@@ -83,6 +63,8 @@ chl_uart_dma::chl_uart_dma(int num, int baudrate) {
 }
 
 chl_uart_dma::~chl_uart_dma() {
+    esp_intr_free(_uhci_intr_hdl);
+    periph_module_disable((_number == 0) ? PERIPH_UHCI0_MODULE : PERIPH_UHCI1_MODULE);
     heap_caps_free(_chl_uhci_dma_rx_buff);
     heap_caps_free(_chl_uhci_dma_inlinks);
     heap_caps_free(_chl_uhci_dma_outlink);
@@ -177,4 +159,49 @@ void chl_uart_dma::_set_intr_start_tx() {
 void chl_uart_dma::_set_intr_start_rx() {
     REG_SET_BIT(UHCI_INT_ENA_REG(_number), (UHCI_IN_DONE_INT_ENA | UHCI_IN_SUC_EOF_INT_ENA ));
     REG_SET_BIT(UHCI_DMA_IN_LINK_REG(_number), UHCI_INLINK_START);
+}
+
+void chl_uart_dma::_reset_module() {
+    _config_gpio();
+    //perform default UART configuration: 1 stop bit; 8 data bits; no flow control; 96 bytes FIFO threshold; using APB clock(assuming it's constant)
+    REG_WRITE(UART_CONF0_REG(_number), UART_TICK_REF_ALWAYS_ON | (0b01 << UART_STOP_BIT_NUM_S) | (0b11 << UART_BIT_NUM_S));
+    REG_WRITE(UART_CONF1_REG(_number), (0x60 << UART_RXFIFO_FULL_THRHD_S) | (0x60 << UART_TXFIFO_EMPTY_THRHD_S));
+    int intergral_divider = ((APB_CLK_FREQ+_baudrate/2) / _baudrate) & UART_CLKDIV_V;
+    int decimal_divider = ((((APB_CLK_FREQ+_baudrate/2) % _baudrate)*10 + _baudrate/2) / _baudrate) & UART_CLKDIV_FRAG_V;
+    REG_WRITE(UART_CLKDIV_REG(_number), (intergral_divider << UART_CLKDIV_S) | (decimal_divider << UART_CLKDIV_FRAG_S));
+    REG_WRITE(UART_FLOW_CONF_REG(_number), 0);
+    REG_WRITE(UART_SLEEP_CONF_REG(_number), (0xF0 << UART_ACTIVE_THRESHOLD_S));
+    REG_WRITE(UART_IDLE_CONF_REG(_number), (0x00A << UART_TX_BRK_NUM_S) | (0x010 << UART_TX_IDLE_NUM_S) | (0x1FF << UART_RX_IDLE_THRHD_S));
+    REG_WRITE(UART_RS485_CONF_REG(_number), 0);
+    REG_WRITE(UART_AUTOBAUD_REG(_number), (0x010 << UART_GLITCH_FILT_S));
+    REG_WRITE(UART_MEM_CONF_REG(_number), (0x01 << UART_RX_SIZE_S) | (0x01 << UART_TX_SIZE_S));
+    REG_WRITE(UART_INT_ENA_REG(_number), 0);
+
+    //DMA config
+    periph_module_enable((_number == 0) ? PERIPH_UHCI0_MODULE : PERIPH_UHCI1_MODULE); //enable UDMA clk(sets DPORT_UHCIx_RST low and DPORT_UHCIx_CLK_EN high)
+    REG_WRITE(UHCI_INT_ENA_REG(_number), 0);
+    REG_SET_BIT(UHCI_CONF0_REG(_number), UHCI_CLK_EN);
+    REG_WRITE(UHCI_CONF0_REG(_number), UHCI_CLK_EN | UHCI_IN_RST | UHCI_OUT_RST | ((_number == 0) ? UHCI_UART0_CE : UHCI_UART1_CE) | UHCI_UART_IDLE_EOF_EN);
+    REG_CLR_BIT(UHCI_CONF0_REG(_number), UHCI_IN_RST | UHCI_OUT_RST);
+    REG_WRITE(UHCI_CONF1_REG(_number), (100 << UHCI_DMA_INFIFO_FULL_THRS_S));
+    REG_WRITE(UHCI_ESCAPE_CONF_REG(_number), 0);
+
+    REG_WRITE(UHCI_DMA_IN_LINK_REG(_number), ((uint32_t)(&(_chl_uhci_dma_inlinks[0])) << UHCI_INLINK_ADDR_S) & UHCI_INLINK_ADDR_M);
+    REG_WRITE(UHCI_DMA_OUT_LINK_REG(_number), ((uint32_t)(_chl_uhci_dma_outlink) << UHCI_OUTLINK_ADDR_S) & UHCI_OUTLINK_ADDR_M);
+}
+void chl_uart_dma::_config_gpio() {
+    if(_number == 0 && _rxdgpio == 3 && _txdgpio == 1) {
+        //Using IOMUX connection
+        chl_gpio_iomux_select_func(_rxdgpio, FUNC_U0RXD_U0RXD);
+        chl_gpio_iomux_select_func(_txdgpio, FUNC_U0TXD_U0TXD);
+        chl_gpio_connect_out(_txdgpio, U0TXD_OUT_IDX, false);
+        chl_gpio_connect_in(_rxdgpio, U0RXD_IN_IDX, false, true);
+    } else {
+        chl_gpio_iomux_select_func(_rxdgpio, PIN_FUNC_GPIO);
+        chl_gpio_iomux_select_func(_txdgpio, PIN_FUNC_GPIO);
+        chl_gpio_set_direction(_rxdgpio, true, false, false, false, false);
+        chl_gpio_set_direction(_txdgpio, false, true, false, false, false);
+        chl_gpio_connect_out(_txdgpio, (_number == 0) ? U0TXD_OUT_IDX : U1TXD_OUT_IDX, false);
+        chl_gpio_connect_in(_rxdgpio, (_number == 0) ? U0RXD_IN_IDX : U1RXD_IN_IDX, false, false);
+    }
 }

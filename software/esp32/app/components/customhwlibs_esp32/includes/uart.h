@@ -4,15 +4,14 @@
 #include <esp_attr.h>
 #include <esp_intr_alloc.h>
 #include <esp_system.h>
-#include <esp_log.h>
-#include <soc/dport_reg.h>
 #include <esp_private/periph_ctrl.h>
 #include <rom/lldesc.h>
-#include <rom/ets_sys.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/stream_buffer.h>
 #include <freertos/semphr.h>
+
+#include "gpio.h"
 
 #define DMA_UART_RX_BUFF_SIZE 1024
 #define DMA_UART_RX_BUFF_CNT 16
@@ -21,7 +20,7 @@
 class chl_uart_dma {
 public:
     //only 0 and 1 supported; automatically starts receiving
-    chl_uart_dma(int num, int baudrate);
+    chl_uart_dma(int num, int baudrate, int rxdgpio, int txdgpio);
     ~chl_uart_dma();
     //Give specified buffer to the DMA and make it send it;possibly should work for multiple threads; buffer should be inside DMA memory range; returns ESP_OK or ESP_FAIL
     //buf - buffer in DMA access zone; len - size of data being transmitted; block - wait for queue to free, or immediately return fail
@@ -36,6 +35,8 @@ public:
 
 private:
     int _number;
+    int _rxdgpio, _txdgpio;
+    int _baudrate;
     SemaphoreHandle_t _tx_linkqueue_mtx;
     SemaphoreHandle_t _rx_streambuffer_mtx;
     QueueHandle_t _xTxLinksQueue;
@@ -48,6 +49,8 @@ private:
 
     inline void _set_intr_start_tx();
     inline void _set_intr_start_rx();
+    void _reset_module();
+    void _config_gpio();
     static void IRAM_ATTR _uhci_intr_hdlr(void* arg);
 };
 
