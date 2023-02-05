@@ -1,4 +1,4 @@
-#include "uart.h"
+#include "chl_uart.h"
 
 chl_uart_dma::chl_uart_dma(int num, int baudrate, int rxdgpio, int txdgpio) {
     assert(num == 0 || num == 1);
@@ -60,6 +60,7 @@ chl_uart_dma::chl_uart_dma(int num, int baudrate, int rxdgpio, int txdgpio) {
     }
     _curr_inlink = &_chl_uhci_dma_inlinks[0];
     _set_intr_start_rx();
+    _tx_wait_task_hdl = NULL;
 }
 
 chl_uart_dma::~chl_uart_dma() {
@@ -110,6 +111,20 @@ int chl_uart_dma::getTxQueueCount() {
     return uxQueueMessagesWaiting(_xTxLinksQueue);
 }
 
+void chl_uart_dma::waitForTxFinish() {
+    if(xSemaphoreTake(_tx_linkqueue_mtx, portMAX_DELAY) != pdTRUE) {
+        return;
+    }
+    if((REG_READ(UHCI_INT_ENA_REG(_number)) & (UHCI_OUT_EOF_INT_RAW | UHCI_OUT_DSCR_ERR_INT_ENA)) == 0) {
+        xSemaphoreGive(_tx_linkqueue_mtx);
+        return;
+    }
+    _tx_wait_task_hdl = xTaskGetCurrentTaskHandle();
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    _tx_wait_task_hdl = NULL;
+    xSemaphoreGive(_tx_linkqueue_mtx);
+}
+
 int chl_uart_dma::getRxByteCount() {
     return xStreamBufferBytesAvailable(_xRxStreamBuffer);
 }
@@ -135,6 +150,9 @@ void chl_uart_dma::_uhci_intr_hdlr(void* arg) {
                 REG_SET_BIT(UHCI_DMA_OUT_LINK_REG(_this->_number), UHCI_OUTLINK_START);
             } else {
                 REG_CLR_BIT(UHCI_INT_ENA_REG(_this->_number), (UHCI_OUT_EOF_INT_RAW | UHCI_OUT_DSCR_ERR_INT_ENA));
+                if(_this->_tx_wait_task_hdl != NULL) {
+                    vTaskNotifyGiveFromISR(_this->_tx_wait_task_hdl, &contsw_req);
+                }
             }
         }
     }

@@ -1,4 +1,4 @@
-#include "timer.h"
+#include "chl_timer.h"
 
 chl_timer::chl_timer(int num) {
      assert(num >= 0 || num <= 3);
@@ -72,6 +72,26 @@ void chl_timer::setTimerRunning(bool start) {
         REG_SET_FIELD(TIMG_T0CONFIG_REG(_group), TIMG_T0_EN, start ? 1 : 0);
     } else {
         REG_SET_FIELD(TIMG_T1CONFIG_REG(_group), TIMG_T1_EN, start ? 1 : 0);
+    }
+}
+
+void chl_timer::setDefaultVal(uint64_t val) {
+    if(_timer == 0) {
+        REG_WRITE(TIMG_T0LOADLO_REG(_group), val & 0xFFFFFFFFULL);
+        REG_WRITE(TIMG_T0LOADHI_REG(_group), (val & 0xFFFFFFFF00000000ULL) >> 32);
+    } else {
+        REG_WRITE(TIMG_T1LOADLO_REG(_group), val & 0xFFFFFFFFULL);
+        REG_WRITE(TIMG_T1LOADHI_REG(_group), (val & 0xFFFFFFFF00000000ULL) >> 32);
+    }
+}
+
+void chl_timer::setTimerVal(uint64_t cmp_val) {
+    if(_timer == 0) {
+        REG_WRITE(TIMG_T0ALARMLO_REG(_group), cmp_val & 0xFFFFFFFFULL);
+        REG_WRITE(TIMG_T0ALARMHI_REG(_group), (cmp_val & 0xFFFFFFFF00000000ULL) >> 32);
+    } else {
+        REG_WRITE(TIMG_T1ALARMLO_REG(_group), cmp_val & 0xFFFFFFFFULL);
+        REG_WRITE(TIMG_T1ALARMHI_REG(_group), (cmp_val & 0xFFFFFFFF00000000ULL) >> 32);
     }
 }
 

@@ -1,4 +1,4 @@
-#include "i2c.h"
+#include "chl_i2c.h"
 
 chl_i2c::chl_i2c(int num, int sckspdkhz, int sdagpio, int sclgpio) {
     assert(num == 0 || num == 1);
@@ -37,6 +37,22 @@ int chl_i2c::i2c_write_regs(uint8_t devaddr, uint8_t startregnum, uint8_t* buffe
         len = 30; //i2c memory is limited to 32 bytes
     }
     if(xSemaphoreTake(_i2c_transm_bsmph, block ? portMAX_DELAY : 0) != pdTRUE) {
+        return ESP_FAIL;
+    }
+    _set_commands_tx(devaddr, startregnum, len, check_ack);
+    for(int i = 0; i < len; i++) {
+        _ram_data[i+2] = buffer[i];
+    }
+    REG_WRITE(I2C_INT_ENA_REG(_number), I2C_INTERRUPTS_ENA);
+    REG_SET_BIT(I2C_CTR_REG(_number), I2C_TRANS_START);
+    return ESP_OK;
+}
+
+int chl_i2c::i2c_write_regs_isr(uint8_t devaddr, uint8_t startregnum, uint8_t* buffer, unsigned int len, bool check_ack) {
+    if(len > 30) {
+        len = 30; //i2c memory is limited to 32 bytes
+    }
+    if(xSemaphoreTakeFromISR(_i2c_transm_bsmph, NULL) != pdTRUE) {
         return ESP_FAIL;
     }
     _set_commands_tx(devaddr, startregnum, len, check_ack);

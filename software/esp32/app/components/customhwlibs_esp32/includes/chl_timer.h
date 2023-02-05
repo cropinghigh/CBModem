@@ -8,15 +8,17 @@
 class chl_timer {
 public:
     chl_timer(int num);
+    ~chl_timer();
     void configurePrescaler(uint16_t prescaler);
     void configureTimer(bool dir, bool autoreload, uint64_t default_val, uint64_t cmp_val); //true-increment
     void setInterruptEnabled(bool enabled);
     void setTimerRunning(bool start);
+    void setDefaultVal(uint64_t val);
+    void setTimerVal(uint64_t cmp_val);
     void forceLoadVal(uint64_t val);
     void forceReloadDefVal();
     uint64_t getCurrTimerVal();
     void setCallback(void (*callback)(void*), void* context);
-    ~chl_timer();
 private:
     int _number;
     int _group;

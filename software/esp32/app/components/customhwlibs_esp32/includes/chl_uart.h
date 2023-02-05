@@ -11,7 +11,7 @@
 #include <freertos/stream_buffer.h>
 #include <freertos/semphr.h>
 
-#include "gpio.h"
+#include "chl_gpio.h"
 
 #define DMA_UART_RX_BUFF_SIZE 1024
 #define DMA_UART_RX_BUFF_CNT 16
@@ -30,6 +30,8 @@ public:
     int read_bytes(uint8_t* buf, unsigned int len, bool block);
     //Return count of items in the TX queue
     int getTxQueueCount();
+    //Wait for the TX transactions to finish
+    void waitForTxFinish();
     //Return count of bytes in the RX buffer
     int getRxByteCount();
 
@@ -41,6 +43,7 @@ private:
     SemaphoreHandle_t _rx_streambuffer_mtx;
     QueueHandle_t _xTxLinksQueue;
     StreamBufferHandle_t _xRxStreamBuffer;
+    TaskHandle_t _tx_wait_task_hdl;
     intr_handle_t _uhci_intr_hdl;
     lldesc_t* _curr_inlink;
     uint8_t* _chl_uhci_dma_rx_buff; //DMA_UART_RX_BUFF_SIZE

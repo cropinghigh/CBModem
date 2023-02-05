@@ -1,4 +1,6 @@
 #pragma once
+#include <math.h>
+
 #include <soc/i2s_periph.h>
 #include <soc/adc_periph.h>
 #include <soc/dac_periph.h>
@@ -15,16 +17,23 @@
 #include <freertos/semphr.h>
 #include <freertos/stream_buffer.h>
 #include <rom/lldesc.h>
+#include <hal/misc.h>
 
-#include "gpio.h"
+#include "chl_gpio.h"
 
 #include <rom/ets_sys.h>
 
 #define DMA_I2SANALOG_RX_STREAM_CNT 256
-#define DMA_I2SANALOG_RX_LINK_BUFF_CNT 64
+#define DMA_I2SANALOG_RX_LINKS_NUM 3
+#define DMA_I2SANALOG_RX_LINK_BUFF_CNT 32
 
 #define I2SANALOG_INTERRUPTS_ENA (I2S_IN_SUC_EOF_INT_ENA | I2S_OUT_DONE_INT_ENA)
-#define I2SANALOG_INTERRUPTS_RAW (I2S_IN_SUC_EOF_INT_RAW | I2S_OUT_DONE_INT_RAW)
+
+#define I2SANALOG_APLL_MUL2 4
+#define I2SANALOG_APLL_MUL1 0
+#define I2SANALOG_APLL_MUL0 0
+#define I2SANALOG_APLL_DIV 0
+//APLL_F = 80MHz
 
 struct chl_i2sanalog_type1 {
     uint16_t dataI: 12;
@@ -40,7 +49,7 @@ struct chl_i2sanalog_dact {
     uint8_t ch2d;
 };
 
-//only I2S0 could work with ADC1/DACs
+//only I2S0 can work with ADC1/DACs
 class chl_i2sanalog {
 public:
     chl_i2sanalog();
@@ -52,10 +61,11 @@ public:
     void stopRx();
     void startTx();
     void stopTx();
-    void clearBuffers();
-    int read_samples(chl_i2sanalog_type1* buf, unsigned int count, bool block);
-    int set_tx_buffer(chl_i2sanalog_dact* buf, unsigned int count, bool block);
-    int getRxSamplesCount();
+    void clearRxBuffers();
+    void clearTxBuffers();
+    int IRAM_ATTR read_samples(chl_i2sanalog_type1* buf, unsigned int count, bool block);
+    int IRAM_ATTR set_tx_buffer(chl_i2sanalog_dact* buf, unsigned int count, unsigned int delay);
+    int IRAM_ATTR getRxSamplesCount();
 private:
     SemaphoreHandle_t _rx_streambuffer_mtx;
     SemaphoreHandle_t _tx_links_mtx;
