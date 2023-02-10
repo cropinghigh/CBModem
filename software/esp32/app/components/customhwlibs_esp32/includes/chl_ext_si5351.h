@@ -34,8 +34,9 @@ public:
     void reset_chip();
     float IRAM_ATTR get_curr_freq_step();
     float IRAM_ATTR get_curr_center_freq();
-    void IRAM_ATTR set_outputs_pll(bool pllB);
-    void IRAM_ATTR set_pll_frequency_fast(bool pllB, int32_t target_shift_hz);
+    void IRAM_ATTR set_outputs_pll(bool pllB, int* yield);
+    void IRAM_ATTR set_tx_output_enabled_isr(bool enabled, int* yield);
+    void IRAM_ATTR set_pll_frequency_fast(bool pllB, int32_t target_shift_hz, int* yield);
 
 private:
     bool initialized = false;
@@ -53,10 +54,11 @@ private:
     uint32_t _prev_pllb_p1;
     uint32_t _prev_pllb_a = 0;
     uint32_t _prev_pllb_b = 0;
+    uint32_t _center_b = 500000;
 
     //Write a+b/c (c always = SI5351_FRACTIONAL_DIVIER) divider data to the registers(according to AN619)
     bool _sync_set_divider(int pll, uint8_t base_reg, uint32_t a, uint32_t b);
 
     //Fast PLL multipler's fractional part change for modulation; WARNING: _sync_set_divider for target pll should be called first!!!
-    void IRAM_ATTR _fast_change_pll_mul(bool pllB, uint32_t b);
+    void IRAM_ATTR _fast_change_pll_mul(bool pllB, uint32_t a, uint32_t b, int* yield);
 };

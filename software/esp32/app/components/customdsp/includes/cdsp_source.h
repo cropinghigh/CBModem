@@ -3,6 +3,8 @@
 #include "cdsp_common.h"
 #include "chl_i2sanalog.h"
 
+#define CDSP_SOURCE_TIMEOUT 100 / portTICK_PERIOD_MS
+
 //Static 11dB atten(max voltage range)
 #define ADC_ATTEN 11
 

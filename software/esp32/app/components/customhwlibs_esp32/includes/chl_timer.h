@@ -18,6 +18,7 @@ public:
     void forceLoadVal(uint64_t val);
     void forceReloadDefVal();
     uint64_t getCurrTimerVal();
+    uint64_t getDefaultTimerVal();
     void setCallback(void (*callback)(void*), void* context);
 private:
     int _number;

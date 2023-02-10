@@ -41,6 +41,7 @@ int cdsp_sink_dac::work(void* ctx, int samples_cnt) {
     }
     if(curr_buff == -1) {
         printf("CDSP_SINK_DAC ERROR: NO FREE BUFFERS!\r\n");
+        return -2;
     }
     for(int i = 0; i < got; i++) {
         (_this->_dac_out_ch ? _this->_out_bufs[curr_buff][i].ch1d : _this->_out_bufs[curr_buff][i].ch2d) = _this->_in_buff[i] * _this->_conv_coeff;
@@ -75,18 +76,17 @@ void cdsp_sink_dac::_do_stop() {
     _dac_dev->stopTx();
 }
 
-cdsp_sink_si5351_fr::cdsp_sink_si5351_fr(chl_ext_si5351* si5351_dev, bool pll, int startTimerVal, int timer_rate) {
+cdsp_sink_si5351_fr::cdsp_sink_si5351_fr(chl_ext_si5351* si5351_dev, bool pll, int timer_rate) {
     _si5351_dev = si5351_dev;
     _tmr = new chl_timer(0);
     _tmr->configurePrescaler(CDSP_SINK_SI_TMR_PRESCALER);
-    _tmr->configureTimer(true, true, startTimerVal, (80000000/CDSP_SINK_SI_TMR_PRESCALER)/timer_rate);
+    _tmr->configureTimer(true, true, 0, (80000000/CDSP_SINK_SI_TMR_PRESCALER)/timer_rate);
     _tmr->setInterruptEnabled(true);
     _tmr->setTimerRunning(false);
     _tmr->forceReloadDefVal();
     _tmr->setCallback(isr_work, this);
     setPll(pll);
     setTimerRate(timer_rate);
-    setStartTimerVal(startTimerVal);
     _write_bsmph = xSemaphoreCreateBinary();
     if(_write_bsmph == NULL) {
         printf("Si5351 SINK ERROR: NOT ENOUGH MEMORY FOR TX SMPH!\r\n");
@@ -108,8 +108,8 @@ void cdsp_sink_si5351_fr::setTimerRate(int timer_rate) {
     _tmr->setTimerVal((80000000/CDSP_SINK_SI_TMR_PRESCALER)/timer_rate);
 }
 
-void cdsp_sink_si5351_fr::setStartTimerVal(int startTimerVal) {
-    _tmr->setDefaultVal(startTimerVal);
+void cdsp_sink_si5351_fr::setTimerVal(uint64_t timer_val) {
+    _tmr->forceLoadVal(timer_val);
 }
 
 void cdsp_sink_si5351_fr::resetTimer() {
@@ -150,8 +150,14 @@ void cdsp_sink_si5351_fr::isr_work(void* ctx) {
     if(_this->_freq_buff_write_ptr != _this->_freq_buff_read_ptr) { //if some data is in the buffer
         _this->_curr_freq = _this->_freq_buff[_this->_freq_buff_read_ptr];
         _this->_freq_buff_read_ptr = (_this->_freq_buff_read_ptr+1)%CDSP_DEF_BUFF_SIZE;
+    } else {
+        // ets_printf("FU\n");
     }
-    _this->_si5351_dev->set_pll_frequency_fast(_this->_pll, _this->_curr_freq);
+    // _this->_si5351_dev->set_tx_output_enabled_isr(false, &contsw_req);
+    _this->_si5351_dev->set_pll_frequency_fast(_this->_pll, _this->_curr_freq, &contsw_req);
+    // _this->_si5351_dev->set_tx_output_enabled_isr(true, &contsw_req);
+    // _this->_si5351_dev->set_outputs_pll(!_this->_pll, &contsw_req);
+    // _this->_pll = !_this->_pll;
     xSemaphoreGiveFromISR(_this->_write_bsmph, &contsw_req);
     if(contsw_req) {
         portYIELD_FROM_ISR();
@@ -181,19 +187,22 @@ void cdsp_sink_si5351_fr::_do_stop() {
 }
 
 
-cdsp_sink_combined::cdsp_sink_combined(chl_i2sanalog* dac_dev, chl_ext_si5351* si5351_dev, bool dac_out_ch, bool pll, int startTimerVal, int timer_rate, int interp, int taps_cnt) {
-    sink_dac = new cdsp_sink_dac(dac_dev, dac_out_ch);
-    sink_si = new cdsp_sink_si5351_fr(si5351_dev, pll, startTimerVal, timer_rate);
+cdsp_sink_combined::cdsp_sink_combined(chl_i2sanalog* dac_dev, chl_ext_si5351* si5351_dev, int compensA, int compensB, bool dac_out_ch, bool pll, int timer_rate, int interp, int taps_cnt) {
+    _compensA = compensA;
+    _compensB = compensB;
     _taps_cnt = taps_cnt;
+    sink_dac = new cdsp_sink_dac(dac_dev, dac_out_ch);
+    sink_si = new cdsp_sink_si5351_fr(si5351_dev, pll, timer_rate);
     _interp = interp;
     _timer_rate = timer_rate;
+
     _interpol = new cdsp_rational_interpolator<float>(_interp);
     _interpol_fir_taps = new float[_taps_cnt];
     cdsp_calc_taps_lpf_float(_interpol_fir_taps, _taps_cnt, timer_rate*_interp, timer_rate/2.0f, true);
     _interpol_fir = new cdsp_fir<float, float>(_taps_cnt, _interpol_fir_taps);
     sink_dac->setInputBlk(_interpol_fir, _interpol_fir->requestData);
     _interpol_fir->setInputBlk(_interpol, _interpol->requestData);
-    _interpol->setInputFunc(this, dac_req_func);
+    _interpol->setInputFunc(this, amplf_req_func);
 }
 
 cdsp_sink_combined::~cdsp_sink_combined() {
@@ -208,9 +217,9 @@ int cdsp_sink_combined::work(void* ctx, int samples_cnt) {
     return _this->sink_dac->work(_this->sink_dac, samples_cnt);
 }
 
-int cdsp_sink_combined::dac_req_func(void* ctx, float* data, int samples_cnt) {
+int cdsp_sink_combined::amplf_req_func(void* ctx, float* data, int samples_cnt) {
     cdsp_sink_combined* _this = (cdsp_sink_combined*) ctx;
-    if(!_this->_running) {return -2;}
+    if(!_this->_running || _this->_input_func == NULL) {return -2;}
     int req_data = std::min(samples_cnt, CDSP_DEF_BUFF_SIZE);
     int got = _this->_input_func(_this->_func_call_ctx, _this->_in_buff, req_data);
     if(got <= 0) {return got;}
@@ -221,24 +230,34 @@ int cdsp_sink_combined::dac_req_func(void* ctx, float* data, int samples_cnt) {
         phdiff += (phdiff > (FL_PI)) ? -(2.0f*FL_PI) : (phdiff<(-FL_PI)) ? (2.0f*FL_PI) : 0.0f; //find smallest angle diff; equal to 2pi * curr_f / fS
         float curr_freq_hz = phdiff * _this->_timer_rate / (2.0f*FL_PI);
         float ampl = spl.mag();
+        // float ampl = 1.0f;
         if(ampl > 1.0f) ampl = 1.0f;
         if(ampl < 0.0f) ampl = 0.0f;
         _this->_prev_ph = ph;
-        _this->_fr_buff[i] = roundf(curr_freq_hz);
-        data[0] = ampl;
+
+        _this->_fr_delay_buff[_this->_fr_delay_buff_wptr] = curr_freq_hz;
+        _this->_fr_buff[i] = roundf(_this->_fr_delay_buff[_this->_fr_delay_buff_rptr]);
+        _this->_fr_delay_buff_wptr = (_this->_fr_delay_buff_wptr + 1) % CDSP_SINK_COMB_FREQ_DELAY_SIZE;
+        _this->_fr_delay_buff_rptr = (_this->_fr_delay_buff_rptr + 1) % CDSP_SINK_COMB_FREQ_DELAY_SIZE;
+        data[i] = ampl;
     }
     _this->sink_si->syncQueueFreqs(_this->_fr_buff, got);
     return got;
 }
 
 void cdsp_sink_combined::_do_start() {
-    _buff_data = 0;
     _prev_ph = 0;
-    sink_si->start(true);
+    for(int i = 0; i < CDSP_SINK_COMB_FREQ_DELAY_SIZE; i++) {
+        _fr_delay_buff[i] = 0.0f;
+    }
+    _fr_delay_buff_rptr = 0;
+    _fr_delay_buff_wptr = _compensA;
+    _interpol->setShift(-_compensB);
     sink_dac->start(true);
+    sink_si->start(true);
 }
 
 void cdsp_sink_combined::_do_stop() {
-    sink_si->stop(true);
     sink_dac->stop(true);
+    sink_si->stop(true);
 }

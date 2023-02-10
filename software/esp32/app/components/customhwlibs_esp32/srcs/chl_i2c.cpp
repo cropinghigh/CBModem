@@ -9,6 +9,11 @@ chl_i2c::chl_i2c(int num, int sckspdkhz, int sdagpio, int sclgpio) {
     _ram_data = (volatile uint32_t*)((I2C_FIFO_START_ADDR_REG(_number) - 0x3FF40000) + 0x60000000);
     _last_transm_state = 4;
     _last_transm_end = 0;
+    _i2c_transm_queue = xQueueCreate(I2C_QUEUE_SIZE, sizeof(chl_i2c_reg_write_trans));
+    if(_i2c_transm_queue == NULL) {
+        printf("I2C%d ERROR: NOT ENOUGH MEMORY FOR TRANSMISSION QUEUE\r\n", _number);
+        return;
+    }
     _i2c_transm_bsmph = xSemaphoreCreateBinary();
     if(_i2c_transm_bsmph == NULL) {
         printf("I2C%d ERROR: NOT ENOUGH MEMORY FOR TRANSMISSION BINARY SEMAPHORE\r\n", _number);
@@ -30,6 +35,30 @@ chl_i2c::chl_i2c(int num, int sckspdkhz, int sdagpio, int sclgpio) {
 chl_i2c::~chl_i2c() {
     vSemaphoreDelete(_i2c_transm_bsmph);
     periph_module_disable((_number == 0) ? PERIPH_I2C0_MODULE : PERIPH_I2C1_MODULE);
+}
+
+void chl_i2c::force_gpio(bool force) {
+    _gpioforce = force;
+    _config_gpio();
+}
+
+void chl_i2c::set_speed(int sckspdkhz) {
+    _sckspdkhz = sckspdkhz;
+    uint32_t scl_period_apb = APB_CLK_FREQ / (_sckspdkhz*1000);
+    uint32_t scl_edge_to_edge = scl_period_apb/2;
+    uint32_t scl_high_period = scl_edge_to_edge-8; //Max freq~=3MHz(practically with 1k resistors)
+    uint32_t scl_low_period = (scl_edge_to_edge - 1);
+    REG_WRITE(I2C_SCL_LOW_PERIOD_REG(_number), (scl_low_period << I2C_SCL_LOW_PERIOD_S) & I2C_SCL_LOW_PERIOD_M);
+    REG_WRITE(I2C_SCL_HIGH_PERIOD_REG(_number), (scl_high_period << I2C_SCL_HIGH_PERIOD_S) & I2C_SCL_HIGH_PERIOD_M);
+    REG_WRITE(I2C_SCL_START_HOLD_REG(_number), (scl_edge_to_edge << I2C_SCL_START_HOLD_TIME_S) & I2C_SCL_START_HOLD_TIME_M);
+    REG_WRITE(I2C_SDA_HOLD_REG(_number), (scl_edge_to_edge/2 << I2C_SDA_HOLD_TIME_S) & I2C_SDA_HOLD_TIME_M); //REQUIRED, otherwise sda is low during all the transmission
+    REG_WRITE(I2C_SDA_SAMPLE_REG(_number), (scl_edge_to_edge/2 << I2C_SDA_SAMPLE_TIME_S) & I2C_SDA_SAMPLE_TIME_M);
+    REG_WRITE(I2C_SCL_RSTART_SETUP_REG(_number), (scl_edge_to_edge << I2C_SCL_RSTART_SETUP_TIME_S) & I2C_SCL_RSTART_SETUP_TIME_M);
+    REG_WRITE(I2C_SCL_STOP_HOLD_REG(_number), (scl_edge_to_edge << I2C_SCL_STOP_HOLD_TIME_S) & I2C_SCL_STOP_HOLD_TIME_M);
+    REG_WRITE(I2C_SCL_STOP_SETUP_REG(_number), (scl_edge_to_edge << I2C_SCL_STOP_SETUP_TIME_S) & I2C_SCL_STOP_SETUP_TIME_M);
+    REG_WRITE(I2C_SCL_FILTER_CFG_REG(_number), 0b1001);
+    REG_WRITE(I2C_SDA_FILTER_CFG_REG(_number), 0b1001);
+    REG_WRITE(I2C_TO_REG(_number), (scl_edge_to_edge*20 << I2C_TIME_OUT_REG_S) & I2C_TIME_OUT_REG_M);
 }
 
 int chl_i2c::i2c_write_regs(uint8_t devaddr, uint8_t startregnum, uint8_t* buffer, unsigned int len, bool block, bool check_ack) {
@@ -83,6 +112,48 @@ int chl_i2c::i2c_read_regs(uint8_t devaddr, uint8_t startregnum, uint8_t* buffer
     }
     xSemaphoreGive(_i2c_transm_bsmph);
     return ret;
+}
+
+int chl_i2c::i2c_queue_write_regs(uint8_t devaddr, uint8_t startregnum, uint8_t* buffer, unsigned int len, bool block, bool check_ack) {
+    if(len > 32) {
+        len = 32; //i2c memory is limited to 32 bytes
+    }
+    if(REG_READ(I2C_INT_ENA_REG(_number)) == 0) {
+        //Start transaction
+        return i2c_write_regs(devaddr, startregnum, buffer, len, block, check_ack);
+    } else {
+        chl_i2c_reg_write_trans transm;
+        transm.devaddr = devaddr;
+        transm.startregnum = startregnum;
+        transm.len = len;
+        transm.check_ack = check_ack;
+        transm.buff = buffer;
+        if(xQueueSendToBack(_i2c_transm_queue, &transm, block ? portMAX_DELAY : 0) != pdTRUE) {
+            return ESP_FAIL;
+        }
+    }
+    return ESP_OK;
+}
+
+int chl_i2c::i2c_queue_write_regs_isr(uint8_t devaddr, uint8_t startregnum, uint8_t* buffer, unsigned int len, bool check_ack, BaseType_t* yield) {
+    if(len > 32) {
+        len = 32; //i2c memory is limited to 32 bytes
+    }
+    if(REG_READ(I2C_INT_ENA_REG(_number)) == 0) {
+        //Start transaction
+        return i2c_write_regs_isr(devaddr, startregnum, buffer, len, check_ack);
+    } else {
+        chl_i2c_reg_write_trans transm;
+        transm.devaddr = devaddr;
+        transm.startregnum = startregnum;
+        transm.len = len;
+        transm.check_ack = check_ack;
+        transm.buff = buffer;
+        if(xQueueSendToBackFromISR(_i2c_transm_queue, &transm, yield) != pdTRUE) {
+            return ESP_FAIL;
+        }
+    }
+    return ESP_OK;
 }
 
 int chl_i2c::i2c_wait_for_transaction() {
@@ -149,21 +220,7 @@ void chl_i2c::_reset_module() {
     REG_SET_BIT(I2C_FIFO_CONF_REG(_number), I2C_TX_FIFO_RST | I2C_RX_FIFO_RST);
     REG_CLR_BIT(I2C_FIFO_CONF_REG(_number), I2C_TX_FIFO_RST | I2C_RX_FIFO_RST);
 
-    uint32_t scl_period_apb = APB_CLK_FREQ / (_sckspdkhz*1000);
-    uint32_t scl_edge_to_edge = scl_period_apb/2;
-    uint32_t scl_high_period = scl_edge_to_edge-8; //Max freq~=3MHz(practically with 1k resistors)
-    uint32_t scl_low_period = scl_edge_to_edge-1;
-    REG_WRITE(I2C_SCL_LOW_PERIOD_REG(_number), (scl_low_period << I2C_SCL_LOW_PERIOD_S) & I2C_SCL_LOW_PERIOD_M);
-    REG_WRITE(I2C_SCL_HIGH_PERIOD_REG(_number), (scl_high_period << I2C_SCL_HIGH_PERIOD_S) & I2C_SCL_HIGH_PERIOD_M);
-    REG_WRITE(I2C_SCL_START_HOLD_REG(_number), (scl_edge_to_edge << I2C_SCL_START_HOLD_TIME_S) & I2C_SCL_START_HOLD_TIME_M);
-    REG_WRITE(I2C_SDA_HOLD_REG(_number), (scl_edge_to_edge/2 << I2C_SDA_HOLD_TIME_S) & I2C_SDA_HOLD_TIME_M); //REQUIRED, otherwise sda is low during all the transmission
-    REG_WRITE(I2C_SDA_SAMPLE_REG(_number), (scl_edge_to_edge/2 << I2C_SDA_SAMPLE_TIME_S) & I2C_SDA_SAMPLE_TIME_M);
-    REG_WRITE(I2C_SCL_RSTART_SETUP_REG(_number), (scl_edge_to_edge*2 << I2C_SCL_RSTART_SETUP_TIME_S) & I2C_SCL_RSTART_SETUP_TIME_M);
-    REG_WRITE(I2C_SCL_STOP_HOLD_REG(_number), (scl_edge_to_edge << I2C_SCL_STOP_HOLD_TIME_S) & I2C_SCL_STOP_HOLD_TIME_M);
-    REG_WRITE(I2C_SCL_STOP_SETUP_REG(_number), (scl_edge_to_edge*2 << I2C_SCL_STOP_SETUP_TIME_S) & I2C_SCL_STOP_SETUP_TIME_M);
-    REG_WRITE(I2C_SCL_FILTER_CFG_REG(_number), 0b1001);
-    REG_WRITE(I2C_SDA_FILTER_CFG_REG(_number), 0b1001);
-    REG_WRITE(I2C_TO_REG(_number), (scl_edge_to_edge*20 << I2C_TIME_OUT_REG_S) & I2C_TIME_OUT_REG_M);
+    set_speed(_sckspdkhz);
 
     REG_WRITE(I2C_INT_CLR_REG(_number), 0b1111111101000);
 }
@@ -174,8 +231,8 @@ void chl_i2c::_config_gpio() {
     chl_gpio_connect_out(_sclgpio, SIG_GPIO_OUT_IDX, false);
     chl_gpio_iomux_select_func(_sdagpio, PIN_FUNC_GPIO);
     chl_gpio_iomux_select_func(_sclgpio, PIN_FUNC_GPIO);
-    chl_gpio_set_direction(_sdagpio, true, true, true, false, false); //+input, +output, +od, -pullup, -pulldown
-    chl_gpio_set_direction(_sclgpio, true, true, true, false, false); //+input, +output, +od, -pullup, -pulldown
+    chl_gpio_set_direction(_sdagpio, true, true, !_gpioforce, false, false); //+input, +output, ?od, -pullup, -pulldown
+    chl_gpio_set_direction(_sclgpio, true, true, !_gpioforce, false, false); //+input, +output, ?od, -pullup, -pulldown
     // If a SLAVE device was in a read operation when the bus was interrupted, the SLAVE device is controlling SDA.
     // The only bit during the 9 clock cycles of a READ byte the MASTER(ESP32) is guaranteed control over is during the ACK bit
     // period. If the slave is sending a stream of ZERO bytes, it will only release SDA during the ACK bit period.
@@ -231,21 +288,35 @@ void chl_i2c::_i2c_intr_hdlr(void* arg) {
     }
     if(curr_intr & I2C_ACK_ERR_INT_RAW) {
         _this->_last_transm_state = 1;
+        ets_printf("NACK\n");
         disable_intr = true;
     }
     if(curr_intr & I2C_TIME_OUT_INT_RAW) {
         _this->_last_transm_state = 2;
+        ets_printf("TO\n");
         _this->_config_gpio(); //Clear bus to allow I2C module to work properly
         disable_intr = true;
     }
     if(curr_intr & I2C_ARBITRATION_LOST_INT_RAW) {
         _this->_last_transm_state = 3;
+        ets_printf("AL\n");
         disable_intr = true;
     }
     if(disable_intr) {
         //transmission is finished
-        xSemaphoreGiveFromISR(_this->_i2c_transm_bsmph, &contsw_req);
-        REG_WRITE(I2C_INT_ENA_REG(_this->_number), 0);
+        if(uxQueueMessagesWaitingFromISR(_this->_i2c_transm_queue) > 0) {
+            //Next transaction in queue
+            chl_i2c_reg_write_trans transm;
+            xQueueReceiveFromISR(_this->_i2c_transm_queue, &transm, &contsw_req);
+            _this->_set_commands_tx(transm.devaddr, transm.startregnum, transm.len, transm.check_ack);
+            for(int i = 0; i < transm.len; i++) {
+                _this->_ram_data[i+2] = transm.buff[i];
+            }
+            REG_SET_BIT(I2C_CTR_REG(_this->_number), I2C_TRANS_START);
+        } else {
+            REG_WRITE(I2C_INT_ENA_REG(_this->_number), 0);
+            xSemaphoreGiveFromISR(_this->_i2c_transm_bsmph, &contsw_req);
+        }
     }
     REG_WRITE(I2C_INT_CLR_REG(_this->_number), curr_intr);
     if(contsw_req) {

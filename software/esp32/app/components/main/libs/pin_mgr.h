@@ -19,9 +19,8 @@
 
 #define MAINI2S_DAC_CH 1
 
-class pin_mgr {
-public:
-    static void init() {
+namespace pin_mgr {
+    void init() {
         chl_gpio_iomux_select_func(TXP_ENABLE_GPIO, PIN_FUNC_GPIO);
         chl_gpio_iomux_select_func(DCD_GPIO, PIN_FUNC_GPIO);
         chl_gpio_iomux_select_func(TX_LED_GPIO, PIN_FUNC_GPIO);
@@ -44,19 +43,19 @@ public:
         chl_gpio_set_direction(RX_LED_GPIO, false, true, false, false, false);
     }
 
-    static void set_txp_enable(bool en) {
+    void set_txp_enable(bool en) {
         chl_gpio_set_level(TXP_ENABLE_GPIO, en);
     }
-    static void set_dcd_enable(bool en) {
+    void set_dcd_enable(bool en) {
         chl_gpio_set_level(DCD_GPIO, en);
     }
-    static void set_txled_enable(bool en) {
+    void set_txled_enable(bool en) {
         chl_gpio_set_level(TX_LED_GPIO, en);
     }
-    static void set_usbled_enable(bool en) {
+    void set_usbled_enable(bool en) {
         chl_gpio_set_level(USB_LED_GPIO, en);
     }
-    static void set_rxled_enable(bool en) {
+    void set_rxled_enable(bool en) {
         chl_gpio_set_level(RX_LED_GPIO, en);
     }
 };

@@ -63,7 +63,7 @@ public:
     void stopTx();
     void clearRxBuffers();
     void clearTxBuffers();
-    int IRAM_ATTR read_samples(chl_i2sanalog_type1* buf, unsigned int count, bool block);
+    int IRAM_ATTR read_samples(chl_i2sanalog_type1* buf, unsigned int count, unsigned int delay);
     int IRAM_ATTR set_tx_buffer(chl_i2sanalog_dact* buf, unsigned int count, unsigned int delay);
     int IRAM_ATTR getRxSamplesCount();
 private:

@@ -97,19 +97,19 @@ void chl_timer::setTimerVal(uint64_t cmp_val) {
 
 void chl_timer::forceLoadVal(uint64_t val) {
     if(_timer == 0) {
-        REG_WRITE(TIMG_T0UPDATE_REG(_group), 1);
-        uint64_t prev_load = (REG_READ(TIMG_T0LO_REG(_group)) | ((uint64_t)REG_READ(TIMG_T0HI_REG(_group)) << 32));
+        uint64_t prev_load = getDefaultTimerVal();
         REG_WRITE(TIMG_T0LOADLO_REG(_group), val & 0xFFFFFFFFULL);
         REG_WRITE(TIMG_T0LOADHI_REG(_group), (val & 0xFFFFFFFF00000000ULL) >> 32);
         REG_WRITE(TIMG_T0LOAD_REG(_group), 1);
+        ets_delay_us(1);
         REG_WRITE(TIMG_T0LOADLO_REG(_group), prev_load & 0xFFFFFFFFULL);
         REG_WRITE(TIMG_T0LOADHI_REG(_group), (prev_load & 0xFFFFFFFF00000000ULL) >> 32);
     } else {
-        REG_WRITE(TIMG_T1UPDATE_REG(_group), 1);
-        uint64_t prev_load =  (REG_READ(TIMG_T1LO_REG(_group)) | ((uint64_t)REG_READ(TIMG_T1HI_REG(_group)) << 32));
+        uint64_t prev_load = getDefaultTimerVal();
         REG_WRITE(TIMG_T1LOADLO_REG(_group), val & 0xFFFFFFFFULL);
         REG_WRITE(TIMG_T1LOADHI_REG(_group), (val & 0xFFFFFFFF00000000ULL) >> 32);
         REG_WRITE(TIMG_T1LOAD_REG(_group), 1);
+        ets_delay_us(1);
         REG_WRITE(TIMG_T1LOADLO_REG(_group), prev_load & 0xFFFFFFFFULL);
         REG_WRITE(TIMG_T1LOADHI_REG(_group), (prev_load & 0xFFFFFFFF00000000ULL) >> 32);
     }
@@ -128,10 +128,20 @@ void chl_timer::forceReloadDefVal() {
 uint64_t chl_timer::getCurrTimerVal() {
     if(_timer == 0) {
         REG_WRITE(TIMG_T0UPDATE_REG(_group), 1);
+        ets_delay_us(1);
         return (REG_READ(TIMG_T0LO_REG(_group)) | ((uint64_t)REG_READ(TIMG_T0HI_REG(_group)) << 32));
     } else {
         REG_WRITE(TIMG_T1UPDATE_REG(_group), 1);
+        ets_delay_us(1);
         return (REG_READ(TIMG_T1LO_REG(_group)) | ((uint64_t)REG_READ(TIMG_T1HI_REG(_group)) << 32));
+    }
+}
+
+uint64_t chl_timer::getDefaultTimerVal() {
+    if(_timer == 0) {
+        return (REG_READ(TIMG_T0LOADLO_REG(_group)) | ((uint64_t)REG_READ(TIMG_T0LOADHI_REG(_group)) << 32));
+    } else {
+        return (REG_READ(TIMG_T1LOADLO_REG(_group)) | ((uint64_t)REG_READ(TIMG_T1LOADHI_REG(_group)) << 32));
     }
 }
 

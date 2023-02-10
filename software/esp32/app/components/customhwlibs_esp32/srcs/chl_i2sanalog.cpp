@@ -163,11 +163,11 @@ void chl_i2sanalog::clearTxBuffers() {
     REG_WRITE(I2S_OUT_LINK_REG(0), (((uint32_t)&_chl_i2sanalog_dma_outlinks[0]) << I2S_OUTLINK_ADDR_S) & I2S_OUTLINK_ADDR_M);
 }
 
-int chl_i2sanalog::read_samples(chl_i2sanalog_type1* buf, unsigned int count, bool block) {
-    if(xSemaphoreTake(_rx_streambuffer_mtx, block ? portMAX_DELAY : 0) != pdTRUE) {
-        return -1;
+int chl_i2sanalog::read_samples(chl_i2sanalog_type1* buf, unsigned int count, unsigned int delay) {
+    if(xSemaphoreTake(_rx_streambuffer_mtx, delay) != pdTRUE) {
+        return -3;
     }
-    int rlen = xStreamBufferReceive(_xRxStreamBuffer, buf, count*sizeof(chl_i2sanalog_type1), block ? portMAX_DELAY : 0);
+    int rlen = xStreamBufferReceive(_xRxStreamBuffer, buf, count*sizeof(chl_i2sanalog_type1), delay);
     xSemaphoreGive(_rx_streambuffer_mtx);
     return (rlen/sizeof(chl_i2sanalog_type1));
 }

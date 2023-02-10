@@ -1,9 +1,12 @@
 #pragma once
-
 #include <type_traits>
-#include "esp_attr.h"
 
 #include <stdint.h>
+
+#define sgn(x) (x>0 ? 1 : (x<0 ? -1 : 0))
+
+#include <esp_attr.h>
+
 //some ideas could be(and probably) taken from Ryzerth's SDR++ dsp code
 
 //Using float because it's convenient to use and measured performance is close to the integer, except division, but it's being used relative rarely

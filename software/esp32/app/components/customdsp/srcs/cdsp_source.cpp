@@ -22,10 +22,10 @@ int cdsp_src_adc::requestData(void* ctx, cdsp_complex_t* data, int samples_cnt) 
     if(!_this->_running) {return -2;}
     int req_data = std::min(samples_cnt, CDSP_DEF_BUFF_SIZE);
     int got = 0;
-    do {
-        got = _this->_adc_dev->read_samples(_this->_in_buf, req_data, true);
-        if(got < 0) {return got;}
-    } while(got < 1); //Block until data available
+    // printf("r1\n");
+    got = _this->_adc_dev->read_samples(_this->_in_buf, req_data, CDSP_SOURCE_TIMEOUT);
+    // printf("r2 %d\n", got);
+    if(got <= 0) {return got;}
     for(int i = 0; i < got; i++) {
         if(_this->_in_buf[i].channelI == _this->_adc_i_ch) {
             data[i].i = ((float)_this->_in_buf[i].dataI * _this->_convert_divisor) - 1.0f;
