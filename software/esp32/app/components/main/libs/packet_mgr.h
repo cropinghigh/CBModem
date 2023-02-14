@@ -2,7 +2,6 @@
 
 #define PACKETMGR_BUFF_SIZE 256
 #define SYNCWORD_32 0x47545A20
-#define PACKETMGR_PREAMBLE_SIZE 32
 
 namespace packet_mgr {
 
@@ -49,11 +48,11 @@ void packet_mgr::load_tx_data(uint8_t* data, int cnt) {
     for(int i = 0; i < PACKETMGR_BUFF_SIZE; i++) {
         tx_data_buff[i] = 0;
     }
-    for(int i = 0; i < PACKETMGR_PREAMBLE_SIZE; i++) {
-        tx_data_buff[tx_data_buff_data] |= (tmp << tx_data_buff_data_bit);
-        tx_data_incr();
-        tmp = 1 - tmp;
-    }
+    // for(int i = 0; i < PACKETMGR_PREAMBLE_SIZE; i++) {
+    //     tx_data_buff[tx_data_buff_data] |= (tmp << tx_data_buff_data_bit);
+    //     tx_data_incr();
+    //     tmp = 1 - tmp;
+    // }
     for(int i = 0;i < 32; i++) {
         tx_data_buff[tx_data_buff_data] |= (((SYNCWORD_32 & (1 << (i))) >> (i)) << tx_data_buff_data_bit);
         tx_data_incr();
@@ -76,18 +75,21 @@ int packet_mgr::tx_reqfunc(void* ctx, uint8_t* data, int samples_cnt) {
     //1bit in byte
     int out_data = std::min(tx_data_buff_data, samples_cnt);
     for(int i = 0; i < samples_cnt; i++) {
+        if(tx_data_buff_data_r == tx_data_buff_data || tx_data_buff_data==0) {
+            tx_data_buff_data = 0;
+            // printf("ret2 %d %d\n", i, tx_data_buff_data_rbit);
+            return (i == 0) ? -10 : i;
+        }
         data[i] = ((tx_data_buff[tx_data_buff_data_r] & (1 << tx_data_buff_data_rbit)) >> tx_data_buff_data_rbit);
         tx_data_buff_data_rbit++;
         if(tx_data_buff_data_rbit >= 8) {
             tx_data_buff_data_rbit = 0;
             if(tx_data_buff_data_r < tx_data_buff_data) {
                 tx_data_buff_data_r++;
-            } else {
-                tx_data_buff_data = 0;
-                return (i == 0) ? -10 : i;
             }
         }
     }
+    // printf("ret1 %d\n", samples_cnt);
     return samples_cnt;
 }
 

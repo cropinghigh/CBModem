@@ -27,12 +27,14 @@ private:
 
     int32_t _decim_shift_int;
     float _decim_shift_frac;
-    float _decim_shift_frac_taps[4]; //Using linear interpolation
-    int32_t _decim_shift_ctr = 0;
+    // float _decim_shift_frac_taps[4]; //Using quadratic interpolation
+    float _decim_shift_frac_taps[2]; //Using linear interpolation to minimize delay
+    // int32_t _decim_shift_ctr = 0;
     SPLS_T _process_buff[3];
+    // SPLS_T _process_in_buff[6];
     SPLS_T _process_in_buff[4];
 
-    float _error_gain = 100.0f;
+    float _error_gain = 50.0f;
     float _loop_gain_p = 0.0f;
     float _loop_gain_i = 0.0f;
     float _loop_i_buff = 0.0f;
@@ -40,6 +42,7 @@ private:
     float _loop_damp_fact = 2.0f;
     float _loop_rel_limit = 0.1f;
     float _err = 0;
+    float _der = 0;
 
     inline float _ted_work();
     void _do_start() override;

@@ -13,7 +13,7 @@ public:
         PC_PI_PTD_ACK, //Acknowledge, data: 1 byte = 1 or 0, depending on last packet execution result
         PC_PI_PTD_SDR_RX_DATA, //Received data in SDR mode, data: N complex vals(2 int16 - i & q)
         PC_PI_PTD_N_TRANSMIT_COMPL, //Data transmitting in normal mode completed, no data
-        PC_PI_PTD_N_RX_DATA, //Data transmitting in normal mode completed, data: N bytes
+        PC_PI_PTD_N_RX_DATA, //Data receiving in normal mode completed, data: N received bytes
     };
     enum packetType_frompc {
         PC_PI_PTP_CHANGE_MODE, //Change device mode, data: 1 byte - new mode
@@ -25,13 +25,18 @@ public:
         PC_PI_PTP_SDR_TX_START, //Start transmitting received data from PC, no data
         PC_PI_PTP_SDR_TX_STOP, //Stop transmitting, no data
         PC_PI_PTP_SDR_TX_DATA, //Put tx data to buffer, data: N complex vals(2 int16 - i & q)
+        PC_PI_PTP_SDR_TX_CARRIER, //Start transmitting max amplitude carrier wave
         PC_PI_PTP_N_BFSK_TRANSMIT, //Transmit data in normal bfsk mode, data: N bytes - data
         PC_PI_PTP_N_BFSK_START_RX, //Start receiving in normal bfsk mode, no data
         PC_PI_PTP_N_BFSK_STOP_RX, //Stop receiving in normal bfsk mode, no data
+        PC_PI_PTP_N_MFSK_TRANSMIT, //Transmit data in normal mfsk mode, data: N bytes - data
+        PC_PI_PTP_N_MFSK_START_RX, //Start receiving in normal mfsk mode, no data
+        PC_PI_PTP_N_MFSK_STOP_RX, //Stop receiving in normal mfsk mode, no data
     };
     enum modes {
         PC_PI_MODE_UNINITED,
-        PC_PI_MODE_NORMAL_BPSK,
+        PC_PI_MODE_NORMAL_BFSK,
+        PC_PI_MODE_NORMAL_MFSK,
         PC_PI_MODE_SDR,
     };
     class pc_packet {

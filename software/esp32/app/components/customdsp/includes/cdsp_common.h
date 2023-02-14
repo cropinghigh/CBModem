@@ -5,7 +5,9 @@
 
 #define sgn(x) (x>0 ? 1 : (x<0 ? -1 : 0))
 
-#include <esp_attr.h>
+#ifndef IRAM_ATTR
+    #include <esp_attr.h>
+#endif
 
 //some ideas could be(and probably) taken from Ryzerth's SDR++ dsp code
 
@@ -69,6 +71,10 @@ public:
 
     inline cdsp_complex_t operator/(float b) {
         return (cdsp_complex_t) {(i/b), (q/b)};
+    }
+
+    inline cdsp_complex_t conj() {
+        return (cdsp_complex_t) {i, -q};
     }
 
     inline float pow2() {

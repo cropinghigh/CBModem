@@ -97,7 +97,7 @@ void chl_i2sanalog::startRx() {
     REG_WRITE(I2S_IN_LINK_REG(0), (((uint32_t)&_chl_i2sanalog_dma_inlinks[0]) << I2S_INLINK_ADDR_S) & I2S_INLINK_ADDR_M);
     REG_SET_BIT(I2S_IN_LINK_REG(0), I2S_INLINK_START);
     REG_SET_BIT(I2S_CONF_REG(0), I2S_RX_START);
-    vTaskDelay(10/portTICK_PERIOD_MS); //REQUIRED
+    vTaskDelay(50/portTICK_PERIOD_MS); //REQUIRED
     REG_CLR_BIT(SYSCON_SARADC_CTRL2_REG, SYSCON_SARADC_MEAS_NUM_LIMIT);
 }
 
@@ -298,7 +298,7 @@ void chl_i2sanalog::_i2sanalog_intr_hdlr(void* arg) {
                 lldesc_t* next_descr = &_this->_chl_i2sanalog_dma_outlinks[_this->_chl_i2sanalog_curr_outlink];
                 if(next_descr->length == 0) {
                     //Not enough data; stopping
-                    // ets_printf("U");
+                    ets_printf("U");
                     REG_SET_BIT(I2S_OUT_LINK_REG(0), I2S_OUTLINK_STOP);
                     _this->_chl_i2sanalog_curr_outlink = -1;
                 }

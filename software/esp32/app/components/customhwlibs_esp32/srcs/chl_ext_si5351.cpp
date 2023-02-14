@@ -32,6 +32,7 @@ int chl_ext_si5351::set_frequency(bool pllB, unsigned int target_freq) {
         if(ms_a > 8 && ms_a < 2048) {
             float freq = pll_freq / (ms_a + ms_b/SI5351_FRACTIONAL_DIVIER);
             float freq_err = fabsf(target_freq - freq);
+            // printf("pllf %f(%d %lu), fr %f(%lu %lu), err %f\n", pll_freq, i, curr_pll_b, freq, ms_a, ms_b, freq_err);
             if(freq_err < last_freq_err) {
                 curr_pll_a = i;
                 curr_ms_a = ms_a;
@@ -60,6 +61,7 @@ int chl_ext_si5351::set_frequency(bool pllB, unsigned int target_freq) {
     pllB ? _curr_pllb_freq=pll_freq : _curr_plla_freq=pll_freq;
     _curr_center_out_freq = freq;
     _curr_freq_step = (float)_xtal_freq * (1.0f/(float)SI5351_FRACTIONAL_DIVIER) / (((float)curr_ms_a + (float)curr_ms_b/(float)SI5351_FRACTIONAL_DIVIER));
+    // printf("Newoutfr %lu, step %f(%lu %lu %lu %lu), err %f\n", _curr_center_out_freq, _curr_freq_step, curr_pll_a, curr_pll_b, curr_ms_a, curr_ms_b, last_freq_err);
     return freq;
 }
 
@@ -201,6 +203,7 @@ void chl_ext_si5351::_fast_change_pll_mul(bool pllB, uint32_t a, uint32_t b, int
         //Nothing changed
         return;
     }
+    // ets_printf("FR %d\n", b);
     uint8_t buffer[6];
     uint32_t new_pll_P1 = (128 * a) + ((b*128)/SI5351_FRACTIONAL_DIVIER) - 512;
     uint32_t new_pll_P2 = (128 * b) - (SI5351_FRACTIONAL_DIVIER * ((b*128)/SI5351_FRACTIONAL_DIVIER));

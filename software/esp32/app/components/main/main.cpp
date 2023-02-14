@@ -135,6 +135,8 @@ void IRAM_ATTR app_main(void) {
     dsp_mgr::sdr_rx_set_cb(sdr_rx_cb, NULL);
     dsp_mgr::n_bfsk_tx_set_cb(n_bfsk_tx_cb, NULL);
     dsp_mgr::n_bfsk_rx_set_cb(n_bfsk_rx_cb, NULL);
+    dsp_mgr::n_mfsk_tx_set_cb(n_bfsk_tx_cb, NULL);
+    dsp_mgr::n_mfsk_rx_set_cb(n_bfsk_rx_cb, NULL);
     packet_mgr::init();
     printf("Starting packet interface...\n");
 
@@ -224,11 +226,18 @@ void IRAM_ATTR app_main(void) {
                 }
                 break;
             }
+            case pc_packet_interface::packetType_frompc::PC_PI_PTP_SDR_TX_CARRIER: {
+                if(curr_mode == pc_packet_interface::modes::PC_PI_MODE_SDR) {
+                    dsp_mgr::sdr_tx_carrier();
+                    ackbyte = 1;
+                }
+                break;
+            }
             case pc_packet_interface::packetType_frompc::PC_PI_PTP_N_BFSK_TRANSMIT: {
-                if(curr_mode == pc_packet_interface::modes::PC_PI_MODE_NORMAL_BPSK) {
+                if(curr_mode == pc_packet_interface::modes::PC_PI_MODE_NORMAL_BFSK) {
                     if(p.len > 0) {
                         packet_mgr::load_tx_data(p.data, p.len);
-                        dsp_mgr::n_bfsk_tx_set_params(-200.0f, 200.0f, 50.0f);
+                        dsp_mgr::n_bfsk_tx_set_params(-200.0f, 200.0f, 200.0f);
                         dsp_mgr::n_bfsk_tx_start(packet_mgr::tx_reqfunc, NULL);
                         ackbyte = 1;
                     }
@@ -236,16 +245,46 @@ void IRAM_ATTR app_main(void) {
                 break;
             }
             case pc_packet_interface::packetType_frompc::PC_PI_PTP_N_BFSK_START_RX: {
-                if(curr_mode == pc_packet_interface::modes::PC_PI_MODE_NORMAL_BPSK) {
-                    dsp_mgr::n_bfsk_rx_set_params(-200.0f, 200.0f, 50.0f);
+                if(curr_mode == pc_packet_interface::modes::PC_PI_MODE_NORMAL_BFSK) {
+                    dsp_mgr::n_bfsk_rx_set_params(-200.0f, 200.0f, 200.0f);
                     dsp_mgr::n_bfsk_rx_start();
                     ackbyte = 1;
                 }
                 break;
             }
             case pc_packet_interface::packetType_frompc::PC_PI_PTP_N_BFSK_STOP_RX: {
-                if(curr_mode == pc_packet_interface::modes::PC_PI_MODE_NORMAL_BPSK) {
+                if(curr_mode == pc_packet_interface::modes::PC_PI_MODE_NORMAL_BFSK) {
                     dsp_mgr::n_bfsk_rx_stop(false);
+                    ackbyte = 1;
+                }
+                break;
+            }
+            case pc_packet_interface::packetType_frompc::PC_PI_PTP_N_MFSK_TRANSMIT: {
+                if(curr_mode == pc_packet_interface::modes::PC_PI_MODE_NORMAL_MFSK) {
+                    if(p.len > 0) {
+                        int frcnt = 8;
+                        float frs[frcnt] = {-500.0f, -375.0f, -250.0f, -125.0f, 125.0f, 250.0f, 375.0f, 500.0f};
+                        packet_mgr::load_tx_data(p.data, p.len);
+                        dsp_mgr::n_mfsk_tx_set_params(frcnt, frs, 50.0f);
+                        dsp_mgr::n_mfsk_tx_start(packet_mgr::tx_reqfunc, NULL);
+                        ackbyte = 1;
+                    }
+                }
+                break;
+            }
+            case pc_packet_interface::packetType_frompc::PC_PI_PTP_N_MFSK_START_RX: {
+                if(curr_mode == pc_packet_interface::modes::PC_PI_MODE_NORMAL_MFSK) {
+                    int frcnt = 8;
+                    float frs[frcnt] = {-500.0f, -375.0f, -250.0f, -125.0f, 125.0f, 250.0f, 375.0f, 500.0f};
+                    dsp_mgr::n_mfsk_rx_set_params(frcnt, frs, 50.0f);
+                    dsp_mgr::n_mfsk_rx_start();
+                    ackbyte = 1;
+                }
+                break;
+            }
+            case pc_packet_interface::packetType_frompc::PC_PI_PTP_N_MFSK_STOP_RX: {
+                if(curr_mode == pc_packet_interface::modes::PC_PI_MODE_NORMAL_MFSK) {
+                    dsp_mgr::n_mfsk_rx_stop(false);
                     ackbyte = 1;
                 }
                 break;

@@ -229,6 +229,7 @@ int cdsp_sink_combined::amplf_req_func(void* ctx, float* data, int samples_cnt) 
         float phdiff = (ph - _this->_prev_ph);
         phdiff += (phdiff > (FL_PI)) ? -(2.0f*FL_PI) : (phdiff<(-FL_PI)) ? (2.0f*FL_PI) : 0.0f; //find smallest angle diff; equal to 2pi * curr_f / fS
         float curr_freq_hz = phdiff * _this->_timer_rate / (2.0f*FL_PI);
+        // printf("fr %f(phd %f/2pi)\n", curr_freq_hz, phdiff/(2.0f*FL_PI));
         float ampl = spl.mag();
         // float ampl = 1.0f;
         if(ampl > 1.0f) ampl = 1.0f;

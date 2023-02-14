@@ -13,6 +13,7 @@ private:
     float _phase = 0;
     float _fs = 1;
     float _fr = 0;
+    float _frlatch = 0;
     float _incr = 1;
 };
 

@@ -13,6 +13,7 @@ void cdsp_gen_sine_complex::setFs(float fs) {
 }
 
 void cdsp_gen_sine_complex::setFr(float fr) {
+    // _frlatch = fr;
     _fr = fr;
     if(_fs != 0) {
         _incr = 2.0f*FL_PI*_fr/_fs;
@@ -26,12 +27,18 @@ int cdsp_gen_sine_complex::requestData(void* ctx, cdsp_complex_t* data, int samp
         data[i].i = cosf(_this->_phase); //Should be quite slow, but performance is enough; replace with LUT later if required
         data[i].q = -sinf(_this->_phase);
         _this->_phase += _this->_incr;
-        while(_this->_phase >= 2.0f*FL_PI) {
+        while(_this->_phase > FL_PI) {
             _this->_phase -= 2.0f*FL_PI;
         }
-        while(_this->_phase <= -2.0f*FL_PI) {
+        while(_this->_phase < -FL_PI) {
             _this->_phase += 2.0f*FL_PI;
         }
+        // if(fabsf(_this->_phase - 0.0f) < 0.001f) {
+        //     _this->_fr = _this->_frlatch; //Keep phase continuity
+        //     if(_this->_fs != 0) {
+        //         _this->_incr = 2.0f*FL_PI*_this->_fr/_this->_fs;
+        //     }
+        // }
     }
     return samples_cnt;
 }
