@@ -88,6 +88,14 @@ namespace dsp_mgr {
     void n_mfsk_rx_stop(bool from_dspc);
     void n_mfsk_rx_set_params(int frcnt, float* frs, float speed);
     void n_mfsk_rx_set_cb(void (*new_n_mfsk_rx_cb) (void*, uint8_t*, int), void* ctx);
+    void n_msk_tx_start(int (*n_msk_tx_reqfunc)(void*, uint8_t*, int), void* ctx);
+    void n_msk_tx_stop(bool from_dspc);
+    void n_msk_tx_set_params(float speed);
+    void n_msk_tx_set_cb(void (*new_n_msk_tx_cb) (void*), void* ctx);
+    void n_msk_rx_start();
+    void n_msk_rx_stop(bool from_dspc);
+    void n_msk_rx_set_params(float speed);
+    void n_msk_rx_set_cb(void (*new_n_msk_rx_cb) (void*, uint8_t*, int), void* ctx);
 
 
     TaskHandle_t dspcore_task_hdl = NULL;
@@ -109,6 +117,8 @@ namespace dsp_mgr {
     cdsp_demod_bfsk* dsp_n_bfskdemod;
     cdsp_mod_mfsk* dsp_n_mfskmod;
     cdsp_demod_mfsk* dsp_n_mfskdemod;
+    cdsp_mod_msk* dsp_n_mskmod;
+    cdsp_demod_msk* dsp_n_mskdemod;
 
     SemaphoreHandle_t dsp_mtx; //Required to avoid locking DSP core task when stopping rx/tx
     float sdr_rx_sr = 1000;
@@ -133,10 +143,16 @@ namespace dsp_mgr {
     void* n_mfsk_tx_cb_ctx;
     void (*n_mfsk_rx_cb) (void*, uint8_t*, int) = NULL;
     void* n_mfsk_rx_cb_ctx;
+    void (*n_msk_tx_cb) (void*) = NULL;
+    void* n_msk_tx_cb_ctx;
+    void (*n_msk_rx_cb) (void*, uint8_t*, int) = NULL;
+    void* n_msk_rx_cb_ctx;
     bool n_bfsk_transmitting = false;
     bool n_bfsk_receiving = false;
     bool n_mfsk_transmitting = false;
     bool n_mfsk_receiving = false;
+    bool n_msk_transmitting = false;
+    bool n_msk_receiving = false;
 };
 
 void dsp_mgr::init() {
@@ -161,10 +177,12 @@ void dsp_mgr::init() {
     dsp_nrxdcb = new cdsp_dcblock<cdsp_complex_t>(N_RX_DCBLOCK_RATE);
     dsp_nrxagc = new cdsp_agc<cdsp_complex_t>(N_RX_AGC_RATE);
     dsp_n_bfskmod = new cdsp_mod_bfsk(TX_IN_SR, -200.0f, 200.0f, 10.0f, N_BFSK_TAPS);
-    dsp_n_bfskdemod = new cdsp_demod_bfsk(N_RX2_SR, -200.0f, 200.0f, 10.0f, 0.001f, 0.707f, 0.01f);
+    dsp_n_bfskdemod = new cdsp_demod_bfsk(N_RX2_SR, -200.0f, 200.0f, 100.0f, 0.001f, 0.707f, 0.01f);
     float frs[2] = {-200.0f, 200.0f};
     dsp_n_mfskmod = new cdsp_mod_mfsk(TX_IN_SR, 2, frs, 10.0f, N_MFSK_TAPS);
-    dsp_n_mfskdemod = new cdsp_demod_mfsk(N_RX2_SR, 2, frs, 10.0f, 0.025f, 0.707f, 0.01f);
+    dsp_n_mfskdemod = new cdsp_demod_mfsk(N_RX2_SR, 2, frs, 100.0f, 0.02f, 0.707f, 0.01f);
+    dsp_n_mskmod = new cdsp_mod_msk(TX_IN_SR, 200.0f);
+    dsp_n_mskdemod = new cdsp_demod_msk(N_RX2_SR, 100.0f, (N_RX2_SR/100.0f)*0.0002f, 0.707f, 0.01f);
     printf("Main: dsp mgr init success! Free memory: %lu bytes\n", esp_get_free_heap_size());
 }
 
@@ -286,6 +304,43 @@ void dsp_mgr::dspcore_main(void* arg) {
             unlock_dsp_mtx();
             taskYIELD();
         }
+        while(n_msk_transmitting) {
+            lock_dsp_mtx();
+            if(!n_msk_transmitting) { unlock_dsp_mtx(); break; } //TX Stopped
+            int r = dsp_maincombsink->work(dsp_maincombsink, TX_SPLS);
+            if(r > 0) {} else if(r < 0) {
+                if(r == -10) {
+                    //normal tx completion
+                    if(n_msk_tx_cb != NULL) {
+                        n_msk_tx_cb(n_mfsk_tx_cb_ctx);
+                    }
+                } else {
+                    printf("TX ERR %d!\n", r);
+                }
+                n_msk_tx_stop(true);
+            } else {
+                printf("WARN: 0 DATA!\n");
+            }
+            unlock_dsp_mtx();
+            taskYIELD();
+        }
+        while(n_msk_receiving) {
+            lock_dsp_mtx();
+            if(!n_msk_receiving) { unlock_dsp_mtx(); break; } //RX Stopped
+            int r = dsp_n_mskdemod->requestData(dsp_n_mskdemod, n_rx_data, N_RX_SPLS);
+            if(r > 0) {
+                if(n_msk_rx_cb != NULL) {
+                    n_msk_rx_cb(n_mfsk_rx_cb_ctx, n_rx_data, r);
+                }
+            } else if(r < 0) {
+                printf("RX ERR %d!\n", r);
+                n_msk_rx_stop(true);
+            } else {
+                printf("WARN: 0 DATA!\n");
+            }
+            unlock_dsp_mtx();
+            taskYIELD();
+        }
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     }
 }
@@ -322,6 +377,8 @@ void dsp_mgr::reset() {
     n_bfsk_receiving = false;
     n_mfsk_transmitting = false;
     n_mfsk_receiving = false;
+    n_msk_transmitting = false;
+    n_msk_receiving = false;
     dsp_maincombsink->stop(true);
     dsp_rxindecim->stop(true);
     pin_mgr::set_txled_enable(false);
@@ -345,9 +402,7 @@ void dsp_mgr::unlock_dsp_mtx() {
 }
 
 void dsp_mgr::set_fr(float newfr) {
-    lock_dsp_mtx();
     mainsi5351->set_frequency(false, roundf(newfr));
-    unlock_dsp_mtx();
 }
 
 void dsp_mgr::rx_set_ins(bool ins) {
@@ -364,7 +419,6 @@ void dsp_mgr::general_rx_start() {
     mainsi5351->set_output_enabled(false, true);
     int realsr = maini2s->setSampleRate(RX_IN_SR);
     pin_mgr::set_rxled_enable(true);
-    notifyDspTask();
 }
 
 void dsp_mgr::general_rx_stop() {
@@ -418,9 +472,10 @@ void dsp_mgr::sdr_rx_start() {
         dsp_rxindecim->setInputBlk(dsp_rxinfir, dsp_rxinfir->requestData);
         dsp_rxinfir->setInputBlk(dsp_mainadcsrc, dsp_mainadcsrc->requestData);
         //Start last block
+        general_rx_start();
         dsp_nrxagc->start(true);
         sdr_receiving = true;
-        general_rx_start();
+        notifyDspTask();
         unlock_dsp_mtx();
     }
 }
@@ -569,9 +624,10 @@ void dsp_mgr::n_bfsk_rx_start() {
         dsp_rxindecim->setInputBlk(dsp_rxinfir, dsp_rxinfir->requestData);
         dsp_rxinfir->setInputBlk(dsp_mainadcsrc, dsp_mainadcsrc->requestData);
         //Start last block
+        general_rx_start();
         dsp_n_bfskdemod->start(true);
         n_bfsk_receiving = true;
-        general_rx_start();
+        notifyDspTask();
         unlock_dsp_mtx();
     }
 }
@@ -666,9 +722,10 @@ void dsp_mgr::n_mfsk_rx_start() {
         dsp_rxindecim->setInputBlk(dsp_rxinfir, dsp_rxinfir->requestData);
         dsp_rxinfir->setInputBlk(dsp_mainadcsrc, dsp_mainadcsrc->requestData);
         //Start last block
+        general_rx_start();
         dsp_n_mfskdemod->start(true);
         n_mfsk_receiving = true;
-        general_rx_start();
+        notifyDspTask();
         unlock_dsp_mtx();
     }
 }
@@ -703,6 +760,105 @@ void dsp_mgr::n_mfsk_rx_set_cb(void (*new_n_mfsk_rx_cb) (void*, uint8_t*, int), 
     n_mfsk_rx_cb_ctx = ctx;
     unlock_dsp_mtx();
 }
+
+void dsp_mgr::n_msk_tx_start(int (*n_msk_tx_reqfunc)(void*, uint8_t*, int), void* ctx) {
+    if(!n_msk_transmitting) {
+        lock_dsp_mtx();
+        set_fr(mainsi5351->get_curr_center_freq() + dsp_n_mskmod->getDataRate()+100.0f);
+        dsp_n_mskmod->setInputFunc(ctx, n_msk_tx_reqfunc);
+        dsp_maincombsink->setInputBlk(dsp_n_mskmod, dsp_n_mskmod->requestData);
+        n_msk_transmitting = true;
+        general_tx_start();
+        unlock_dsp_mtx();
+    }
+}
+
+void dsp_mgr::n_msk_tx_stop(bool from_dspc) {
+    if(n_msk_transmitting) {
+        if(!from_dspc) {
+            lock_dsp_mtx();
+        }
+        n_msk_transmitting = false;
+        general_tx_stop();
+        set_fr(mainsi5351->get_curr_center_freq() - dsp_n_mskmod->getDataRate() - 100.0f);
+        if(!from_dspc) {
+            notifyDspTask();
+            unlock_dsp_mtx();
+        }
+    }
+}
+
+void dsp_mgr::n_msk_tx_set_params(float speed) {
+    if(!n_msk_transmitting) {
+        lock_dsp_mtx();
+        dsp_n_mskmod->setDataRate(speed);
+        unlock_dsp_mtx();
+    }
+}
+
+void dsp_mgr::n_msk_tx_set_cb(void (*new_n_msk_tx_cb) (void*), void* ctx) {
+    lock_dsp_mtx();
+    n_msk_tx_cb = new_n_msk_tx_cb;
+    n_msk_tx_cb_ctx = ctx;
+    unlock_dsp_mtx();
+}
+
+void dsp_mgr::n_msk_rx_start() {
+    if(!n_msk_transmitting && !n_msk_receiving) {
+        lock_dsp_mtx();
+        //Configure blocks, calculate taps
+        dsp_mainadcsrc->setAdcChannels(MAINI2S_I_HIGH_CH, MAINI2S_Q_HIGH_CH);
+        dsp_rxindecim->setDecimation(roundf(RX_IN_SR/N_RX_SR));
+        cdsp_calc_taps_lpf_float(dsp_rxinfir_taps, RX_IN_FIR_TAPS, RX_IN_SR, N_RX_SR/2.0f, true);
+        dsp_nrx2decim->setDecimation(roundf(N_RX_SR/N_RX2_SR));
+        cdsp_calc_taps_lpf_float(dsp_nrx2fir_taps, RX_IN_FIR_TAPS, N_RX_SR, N_RX2_SR/2.0f, true);
+        //Make the chain
+        dsp_n_mskdemod->setInputBlk(dsp_nrxagc, dsp_nrxagc->requestData);
+        dsp_nrxagc->setInputBlk(dsp_nrxdcb, dsp_nrxdcb->requestData);
+        dsp_nrxdcb->setInputBlk(dsp_nrx2decim, dsp_nrx2decim->requestData);
+        dsp_nrx2decim->setInputBlk(dsp_nrx2fir, dsp_nrx2fir->requestData);
+        dsp_nrx2fir->setInputBlk(dsp_rxindecim, dsp_rxindecim->requestData);
+        dsp_rxindecim->setInputBlk(dsp_rxinfir, dsp_rxinfir->requestData);
+        dsp_rxinfir->setInputBlk(dsp_mainadcsrc, dsp_mainadcsrc->requestData);
+        //Start last block
+        general_rx_start();
+        dsp_n_mskdemod->start(true);
+        n_msk_receiving = true;
+        notifyDspTask();
+        unlock_dsp_mtx();
+    }
+}
+
+void dsp_mgr::n_msk_rx_stop(bool from_dspc) {
+    if(n_msk_receiving) {
+        if(!from_dspc) {
+            lock_dsp_mtx();
+        }
+        n_msk_receiving = false;
+        dsp_n_mskdemod->stop(true);
+        general_rx_stop();
+        if(!from_dspc) {
+            notifyDspTask();
+            unlock_dsp_mtx();
+        }
+    }
+}
+
+void dsp_mgr::n_msk_rx_set_params(float speed) {
+    if(!n_msk_transmitting) {
+        lock_dsp_mtx();
+        dsp_n_mskdemod->setDataRate(speed);
+        unlock_dsp_mtx();
+    }
+}
+
+void dsp_mgr::n_msk_rx_set_cb(void (*new_n_msk_rx_cb) (void*, uint8_t*, int), void* ctx) {
+    lock_dsp_mtx();
+    n_msk_rx_cb = new_n_msk_rx_cb;
+    n_msk_rx_cb_ctx = ctx;
+    unlock_dsp_mtx();
+}
+
 
 
 

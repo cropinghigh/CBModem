@@ -10,7 +10,7 @@ cdsp_maximum_likelihood_tr<SPLS_T>::cdsp_maximum_likelihood_tr(int in_sps, float
 
 CDSP_TR_TPL
 void cdsp_maximum_likelihood_tr<SPLS_T>::setInSps(int in_sps) {
-    assert(in_sps >= 3);
+    assert(in_sps >= 2);
     _decim = in_sps;
 }
 
@@ -53,21 +53,9 @@ void cdsp_maximum_likelihood_tr<SPLS_T>::update_shift(float shiftChange) {
             _decim_ctr -= 1;
             _decim_shift_frac -= 1.0f;
         }
-        // if(_decim_shift_int < 0) {
-        //     _decim_shift_int = _decim-3;
-        //     _decim_ctr+=_decim-3; //Decimate 1 sample faster at next iteration
-        // }
-        // if(_decim_shift_int > _decim-3) {
-        //     _decim_shift_int = 0;
-        //     _decim_ctr-=_decim-3; //Skip one input sample
-        // }
     }
     _decim_shift_frac_taps[0] = _decim_shift_frac;
     _decim_shift_frac_taps[1] = 1.0f - _decim_shift_frac;
-    // _decim_shift_frac_taps[0] = 0.5f*_decim_shift_frac*_decim_shift_frac - 0.5f*_decim_shift_frac;
-    // _decim_shift_frac_taps[1] = -0.5f*_decim_shift_frac*_decim_shift_frac + (1.0f + 0.5f) * _decim_shift_frac;
-    // _decim_shift_frac_taps[2] = -0.5f*_decim_shift_frac*_decim_shift_frac - (1.0f - 0.5f) * _decim_shift_frac + 1.0f;
-    // _decim_shift_frac_taps[3] = 0.5f*_decim_shift_frac*_decim_shift_frac - 0.5f*_decim_shift_frac;
 }
 
 int spl_id = 0;
@@ -80,99 +68,43 @@ int cdsp_maximum_likelihood_tr<SPLS_T>::requestData(void* ctx, SPLS_T* data, int
     int got_samples = 0;
     while(got_samples < req_samples) {
         if(_this->_buff_avail > 0) {
+            _this->_process_in_buff[_this->_process_in_buff_ctr] = _this->_in_buf[_this->_buff_ptr];
             if(_this->_decim_ctr >= _this->_decim) {
-                // if(_this->_decim_shift_ctr == 0) {
-                //     _this->_decim_shift_ctr++; //Start counting shift
-                // }
-                // _this->_decim_ctr -= _this->_decim;
-                _this->_process_in_buff[3] = _this->_in_buf[_this->_buff_ptr];
-                _this->_decim_ctr = 1;
-                _this->_process_buff[0] = (_this->_process_in_buff[0]*_this->_decim_shift_frac_taps[1]) + (_this->_process_in_buff[1]*_this->_decim_shift_frac_taps[0]);
-                _this->_process_buff[1] = (_this->_process_in_buff[1]*_this->_decim_shift_frac_taps[0]) + (_this->_process_in_buff[2]*_this->_decim_shift_frac_taps[1]);
-                _this->_process_buff[2] = (_this->_process_in_buff[2]*_this->_decim_shift_frac_taps[1]) + (_this->_process_in_buff[3]*_this->_decim_shift_frac_taps[0]);
-                // _this->_process_buff[0] = _this->_process_in_buff[1];
-                // _this->_process_buff[1] = _this->_process_in_buff[2];
-                // _this->_process_buff[2] = _this->_process_in_buff[3];
+                _this->_decim_ctr = 0;
+                int id_0 = (_this->_process_in_buff_ctr + 4 - 3) % 4;
+                int id_1 = (_this->_process_in_buff_ctr + 4 - 2) % 4;
+                int id_2 = (_this->_process_in_buff_ctr + 4 - 1) % 4;
+                int id_3 = _this->_process_in_buff_ctr;
+                _this->_process_buff[0] = (_this->_process_in_buff[id_0]*_this->_decim_shift_frac_taps[1]) + (_this->_process_in_buff[id_1]*_this->_decim_shift_frac_taps[0]);
+                _this->_process_buff[1] = (_this->_process_in_buff[id_1]*_this->_decim_shift_frac_taps[0]) + (_this->_process_in_buff[id_2]*_this->_decim_shift_frac_taps[1]);
+                _this->_process_buff[2] = (_this->_process_in_buff[id_2]*_this->_decim_shift_frac_taps[1]) + (_this->_process_in_buff[id_3]*_this->_decim_shift_frac_taps[0]);
                 float shiftChange = _this->_ted_work();
                 _this->update_shift(shiftChange);
                 data[got_samples] = _this->_process_buff[1];
-                s = data[got_samples];
-                got_samples++;
-                
-                
-            } else {
-                if(_this->_decim_ctr >= _this->_decim-1) {
-                    _this->_process_in_buff[2] = _this->_in_buf[_this->_buff_ptr];
-                } else if(_this->_decim_ctr >= _this->_decim-2) {
-                    _this->_process_in_buff[1] = _this->_in_buf[_this->_buff_ptr];
-                } else if(_this->_decim_ctr >= _this->_decim-3) {
-                    _this->_process_in_buff[0] = _this->_in_buf[_this->_buff_ptr];
+                if constexpr (std::is_same<SPLS_T, cdsp_complex_t>::value) {
+                    s = data[got_samples].i;
+                } else {
+                    s = data[got_samples];
                 }
-                _this->_decim_ctr++;
+                got_samples++;
             }
-                
-            // if(_this->_decim_shift_ctr > 0) {
-            //     //Counting shift from nearest decim point
-            //     if((_this->_decim_shift_ctr-1) >= (_this->_decim_shift_int + 3)) {
-            //         _this->_process_in_buff[3] = _this->_in_buf[_this->_buff_ptr];
-            //         //All int samples found; calculating fractional shift and stopping counter
-            //         // _this->_process_buff[1] = (
-            //         //     (_this->_process_in_buff[0] * _this->_decim_shift_frac_taps[0]) +
-            //         //     (_this->_process_in_buff[1] * _this->_decim_shift_frac_taps[1]) +
-            //         //     (_this->_process_in_buff[2] * _this->_decim_shift_frac_taps[2]) +
-            //         //     (_this->_process_in_buff[3] * _this->_decim_shift_frac_taps[3])); //Current sample
-            //         // _this->_process_buff[0] = _this->_process_in_buff[0]; //One prior sample
-            //         // _this->_process_buff[2] = _this->_process_in_buff[2]; //One future sample
-            //         // _this->_process_buff[0] = (
-            //             // (_this->_process_in_buff[0] * _this->_decim_shift_frac_taps[0]) +
-            //             // (_this->_process_in_buff[1] * _this->_decim_shift_frac_taps[1]) +
-            //             // (_this->_process_in_buff[2] * _this->_decim_shift_frac_taps[2]) +
-            //             // (_this->_process_in_buff[3] * _this->_decim_shift_frac_taps[3]));
-            //         // _this->_process_buff[0] = _this->_process_in_buff[0];
-            //         // _this->_process_buff[1] = _this->_process_in_buff[1];
-            //         // _this->_process_buff[1] = (
-            //         //     (_this->_process_in_buff[1] * _this->_decim_shift_frac_taps[0]) +
-            //         //     (_this->_process_in_buff[2] * _this->_decim_shift_frac_taps[1]) +
-            //         //     (_this->_process_in_buff[3] * _this->_decim_shift_frac_taps[2]) +
-            //         //     (_this->_process_in_buff[4] * _this->_decim_shift_frac_taps[3]));
-            //         // _this->_process_buff[2] = _this->_process_in_buff[2];
-            //         // _this->_process_buff[2] = (
-            //         //     (_this->_process_in_buff[2] * _this->_decim_shift_frac_taps[0]) +
-            //         //     (_this->_process_in_buff[3] * _this->_decim_shift_frac_taps[1]) +
-            //         //     (_this->_process_in_buff[4] * _this->_decim_shift_frac_taps[2]) +
-            //         //     (_this->_process_in_buff[5] * _this->_decim_shift_frac_taps[3]));
-            //         // _this->_process_buff[0] = (_this->_process_in_buff[0]*_this->_decim_shift_frac_taps[0]) + (_this->_process_in_buff[1]*_this->_decim_shift_frac_taps[1]);
-            //         _this->_process_buff[0] = _this->_process_in_buff[0];
-            //         // _this->_process_buff[1] = (_this->_process_in_buff[1]*_this->_decim_shift_frac_taps[0]) + (_this->_process_in_buff[2]*_this->_decim_shift_frac_taps[1]);
-            //         _this->_process_buff[1] = _this->_process_in_buff[1];
-            //         _this->_process_buff[2] = _this->_process_in_buff[2];
-            //         // _this->_process_buff[2] = (_this->_process_in_buff[2]*_this->_decim_shift_frac_taps[0]) + (_this->_process_in_buff[3]*_this->_decim_shift_frac_taps[1]);
-            //         data[got_samples] = _this->_process_buff[1];
-            //         s = data[got_samples];
-            //         got_samples++;
-            //         //Calculate timing error and update shift
-            //         float shiftChange = _this->_ted_work();
-            //         _this->update_shift(shiftChange);
-            //         _this->_decim_shift_ctr = 0;
-            //     } else {
-            //         if((_this->_decim_shift_ctr-1) >= (_this->_decim_shift_int + 2)) {
-            //             _this->_process_in_buff[2] = _this->_in_buf[_this->_buff_ptr];
-            //         } else if((_this->_decim_shift_ctr-1) >= (_this->_decim_shift_int + 1)) {
-            //             _this->_process_in_buff[1] = _this->_in_buf[_this->_buff_ptr];
-            //         } else if((_this->_decim_shift_ctr-1) >= (_this->_decim_shift_int + 0)) {
-            //             _this->_process_in_buff[0] = _this->_in_buf[_this->_buff_ptr];
-            //         }
-            //         _this->_decim_shift_ctr++;
-            //     }
-            // }
+            _this->_process_in_buff_ctr = (_this->_process_in_buff_ctr+1) % 4;
             float dbgerr = _this->_err;
             float dbgshift = ((_this->_decim_shift_int+_this->_decim_shift_frac)*1.0f)/((float)_this->_decim);
-            float dbgder = _this->_der;
-            if(s == 0) {
-                // printf("%d %f - - -\n", spl_id, _this->_in_buf[_this->_buff_ptr]);
+            if constexpr (std::is_same<SPLS_T, cdsp_complex_t>::value) {
+                if(s == 0) {
+                    // printf("%d %f - - - %f\n", spl_id, _this->_in_buf[_this->_buff_ptr].i, _this->_in_buf[_this->_buff_ptr].q);
+                } else {
+                    // printf("%d %f %f %f %f %f\n", spl_id, _this->_in_buf[_this->_buff_ptr].i, s, dbgshift, dbgerr, _this->_in_buf[_this->_buff_ptr].q);
+                    s = 0;
+                }
             } else {
-                // printf("%d %f %f %f %f\n", spl_id, _this->_in_buf[_this->_buff_ptr], s, dbgshift, dbgerr);
-                s = 0;
+                if(s == 0) {
+                    // printf("%d %f - - -\n", spl_id, _this->_in_buf[_this->_buff_ptr]);
+                } else {
+                    // printf("%d %f %f %f %f\n", spl_id, _this->_in_buf[_this->_buff_ptr], s, dbgshift, dbgerr);
+                    s = 0;
+                }
             }
             
             // wf.write((char *) &_this->_in_buf[_this->_buff_ptr], sizeof(float));
@@ -183,6 +115,7 @@ int cdsp_maximum_likelihood_tr<SPLS_T>::requestData(void* ctx, SPLS_T* data, int
             spl_id++;
             _this->_buff_ptr++;
             _this->_buff_avail--;
+            _this->_decim_ctr++;
         } else {
             //Request new buffer
             int ind = _this->_input_func(_this->_func_call_ctx, _this->_in_buf, std::min(req_samples*_this->_decim, (int32_t)CDSP_DEF_BUFF_SIZE));
@@ -207,7 +140,6 @@ float cdsp_maximum_likelihood_tr<SPLS_T>::_ted_work() {
     }
     error = std::erf(error);
     _err = error;
-    _der = derivative;
     _loop_i_buff += error*_loop_gain_i;
     if(_loop_i_buff >= _loop_rel_limit) {
         _loop_i_buff = _loop_rel_limit;
@@ -219,18 +151,14 @@ float cdsp_maximum_likelihood_tr<SPLS_T>::_ted_work() {
 
 CDSP_TR_TPL
 void cdsp_maximum_likelihood_tr<SPLS_T>::_do_start() {
-    _decim_ctr = 0;
+    _decim_ctr = 7;
     _decim_shift_int = 0;
     _decim_shift_frac = 0.0f;
     _decim_shift_frac_taps[0] = _decim_shift_frac;
     _decim_shift_frac_taps[1] = 1.0f - _decim_shift_frac;
-    // _decim_shift_frac_taps[0] = 0.5f*_decim_shift_frac*_decim_shift_frac - 0.5f*_decim_shift_frac;
-    // _decim_shift_frac_taps[1] = -0.5f*_decim_shift_frac*_decim_shift_frac + (1.0f + 0.5f) * _decim_shift_frac;
-    // _decim_shift_frac_taps[2] = -0.5f*_decim_shift_frac*_decim_shift_frac - (1.0f - 0.5f) * _decim_shift_frac + 1.0f;
-    // _decim_shift_frac_taps[3] = 0.5f*_decim_shift_frac*_decim_shift_frac - 0.5f*_decim_shift_frac;
-    // _decim_shift_ctr = 0;
     _buff_avail = 0;
     _buff_ptr = 0;
+    _process_in_buff_ctr = 0;
     _loop_i_buff = 0.0f;
     _process_in_buff[0] = 0.0f;
     _process_in_buff[1] = 0.0f,
@@ -244,4 +172,4 @@ void cdsp_maximum_likelihood_tr<SPLS_T>::_do_stop() {
 
 //Add types to compile if required
 template class cdsp_maximum_likelihood_tr<float>;
-// template class cdsp_maximum_likelihood_tr<cdsp_complex_t>;
+template class cdsp_maximum_likelihood_tr<cdsp_complex_t>;

@@ -33,6 +33,7 @@ private:
     SPLS_T _process_buff[3];
     // SPLS_T _process_in_buff[6];
     SPLS_T _process_in_buff[4];
+    int _process_in_buff_ctr = 0;
 
     float _error_gain = 50.0f;
     float _loop_gain_p = 0.0f;

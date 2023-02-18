@@ -32,11 +32,15 @@ public:
         PC_PI_PTP_N_MFSK_TRANSMIT, //Transmit data in normal mfsk mode, data: N bytes - data
         PC_PI_PTP_N_MFSK_START_RX, //Start receiving in normal mfsk mode, no data
         PC_PI_PTP_N_MFSK_STOP_RX, //Stop receiving in normal mfsk mode, no data
+        PC_PI_PTP_N_MSK_TRANSMIT, //Transmit data in normal msk mode, data: N bytes - data
+        PC_PI_PTP_N_MSK_START_RX, //Start receiving in normal msk mode, no data
+        PC_PI_PTP_N_MSK_STOP_RX, //Stop receiving in normal msk mode, no data
     };
     enum modes {
         PC_PI_MODE_UNINITED,
         PC_PI_MODE_NORMAL_BFSK,
         PC_PI_MODE_NORMAL_MFSK,
+        PC_PI_MODE_NORMAL_MSK,
         PC_PI_MODE_SDR,
     };
     class pc_packet {

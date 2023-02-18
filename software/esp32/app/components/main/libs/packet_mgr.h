@@ -41,7 +41,7 @@ void packet_mgr::tx_data_incr() {
 
 void packet_mgr::load_tx_data(uint8_t* data, int cnt) {
     if(tx_data_buff_data != 0) { printf("TX DB O\n"); return; }
-    int tmp = 0;
+    // int tmp = 0;
     tx_data_buff_data_r = 0;
     tx_data_buff_data_rbit = 0;
     tx_data_buff_data_bit = 0;
@@ -73,7 +73,6 @@ void packet_mgr::load_tx_data(uint8_t* data, int cnt) {
 
 int packet_mgr::tx_reqfunc(void* ctx, uint8_t* data, int samples_cnt) {
     //1bit in byte
-    int out_data = std::min(tx_data_buff_data, samples_cnt);
     for(int i = 0; i < samples_cnt; i++) {
         if(tx_data_buff_data_r == tx_data_buff_data || tx_data_buff_data==0) {
             tx_data_buff_data = 0;
@@ -104,8 +103,10 @@ int find_bit_diffs(uint32_t a, uint32_t b) {
 }
 
 void packet_mgr::load_rx_data(uint8_t* data, int cnt) {
+    // printf("BITS ");
     for(int i = 0; i < cnt; i++) {
         int bit = (data[i] & 0b1);
+        // printf("%d", bit);
         rx_shift_reg = rx_shift_reg >> 1;
         rx_shift_reg |= (bit << 31);
         if(rx_state == 1) { //Reading length
@@ -155,4 +156,5 @@ void packet_mgr::load_rx_data(uint8_t* data, int cnt) {
             }
         }
     }
+    // printf("\n");
 }

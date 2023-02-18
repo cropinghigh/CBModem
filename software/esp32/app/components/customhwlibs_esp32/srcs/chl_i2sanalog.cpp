@@ -92,18 +92,22 @@ int chl_i2sanalog::setSampleRate(int sr) {
 
 void chl_i2sanalog::startRx() {
     stopRx();
-    REG_SET_BIT(SYSCON_SARADC_CTRL2_REG, SYSCON_SARADC_MEAS_NUM_LIMIT);
     _chl_i2sanalog_curr_inlink = 0;
     REG_WRITE(I2S_IN_LINK_REG(0), (((uint32_t)&_chl_i2sanalog_dma_inlinks[0]) << I2S_INLINK_ADDR_S) & I2S_INLINK_ADDR_M);
-    REG_SET_BIT(I2S_IN_LINK_REG(0), I2S_INLINK_START);
+    esp_rom_delay_us(1);
     REG_SET_BIT(I2S_CONF_REG(0), I2S_RX_START);
-    vTaskDelay(50/portTICK_PERIOD_MS); //REQUIRED
-    REG_CLR_BIT(SYSCON_SARADC_CTRL2_REG, SYSCON_SARADC_MEAS_NUM_LIMIT);
+    REG_SET_BIT(I2S_IN_LINK_REG(0), I2S_INLINK_START);
+    _dis_reset = 4;
+    // vTaskDelay(50/portTICK_PERIOD_MS); //REQUIRED; moved to data request function
+    // REG_CLR_BIT(SYSCON_SARADC_CTRL2_REG, SYSCON_SARADC_MEAS_NUM_LIMIT);
 }
 
 void chl_i2sanalog::stopRx() {
-    REG_CLR_BIT(I2S_CONF_REG(0), I2S_RX_START);
+    _dis_reset = 0;
     REG_SET_BIT(I2S_IN_LINK_REG(0), I2S_INLINK_STOP);
+    REG_CLR_BIT(I2S_CONF_REG(0), I2S_RX_START);
+    esp_rom_delay_us(1);
+    REG_SET_BIT(SYSCON_SARADC_CTRL2_REG, SYSCON_SARADC_MEAS_NUM_LIMIT);
 }
 
 void chl_i2sanalog::startTx() {
@@ -111,6 +115,7 @@ void chl_i2sanalog::startTx() {
     _chl_i2sanalog_curr_outlink = 0;
     REG_WRITE(I2S_OUT_LINK_REG(0), (((uint32_t)&_chl_i2sanalog_dma_outlinks[0]) << I2S_OUTLINK_ADDR_S) & I2S_OUTLINK_ADDR_M);
     REG_SET_BIT(SENS_SAR_DAC_CTRL1_REG, SENS_DAC_DIG_FORCE);
+    esp_rom_delay_us(1);
     REG_SET_BIT(I2S_CONF_REG(0), I2S_TX_START);
     REG_SET_BIT(I2S_OUT_LINK_REG(0), I2S_OUTLINK_START);
 }
@@ -118,6 +123,7 @@ void chl_i2sanalog::startTx() {
 void chl_i2sanalog::stopTx() {
     REG_SET_BIT(I2S_OUT_LINK_REG(0), I2S_OUTLINK_STOP);
     REG_CLR_BIT(I2S_CONF_REG(0), I2S_TX_START);
+    esp_rom_delay_us(1);
     REG_CLR_BIT(SENS_SAR_DAC_CTRL1_REG, SENS_DAC_DIG_FORCE);
 }
 
@@ -168,6 +174,12 @@ int chl_i2sanalog::read_samples(chl_i2sanalog_type1* buf, unsigned int count, un
         return -3;
     }
     int rlen = xStreamBufferReceive(_xRxStreamBuffer, buf, count*sizeof(chl_i2sanalog_type1), delay);
+    if(rlen > 0 && _dis_reset > 1) {
+        _dis_reset--;
+    } else if(_dis_reset == 1) {
+        REG_CLR_BIT(SYSCON_SARADC_CTRL2_REG, SYSCON_SARADC_MEAS_NUM_LIMIT);
+        _dis_reset--;
+    }
     xSemaphoreGive(_rx_streambuffer_mtx);
     return (rlen/sizeof(chl_i2sanalog_type1));
 }
@@ -220,6 +232,7 @@ int chl_i2sanalog::getRxSamplesCount() {
 }
 
 void chl_i2sanalog::_reset_module() {
+    _dis_reset = 0;
     rtc_clk_apll_enable(true);
     rtc_clk_apll_coeff_set(I2SANALOG_APLL_DIV, I2SANALOG_APLL_MUL0, I2SANALOG_APLL_MUL1, I2SANALOG_APLL_MUL2);
     REG_WRITE(I2S_INT_ENA_REG(0), 0);
@@ -255,7 +268,7 @@ void chl_i2sanalog::_reset_module() {
     REG_WRITE(SYSCON_SARADC_FSM_REG, (8 << SYSCON_SARADC_RSTB_WAIT_S) | (16 << SYSCON_SARADC_START_WAIT_S) | (100 << SYSCON_SARADC_STANDBY_WAIT_S) | (8 << SYSCON_SARADC_SAMPLE_CYCLE_S));
     REG_WRITE(SYSCON_SARADC_CTRL_REG, SYSCON_SARADC_SAR1_PATT_P_CLEAR | SYSCON_SARADC_SAR2_PATT_P_CLEAR);
     REG_WRITE(SYSCON_SARADC_CTRL_REG, (16 << SYSCON_SARADC_SAR_CLK_DIV_S) | ((2-1) << SYSCON_SARADC_SAR1_PATT_LEN_S) | SYSCON_SARADC_SAR_CLK_GATED | SYSCON_SARADC_DATA_TO_I2S);
-    REG_WRITE(SYSCON_SARADC_CTRL2_REG, SYSCON_SARADC_MEAS_NUM_LIMIT | (10 << SYSCON_SARADC_MAX_MEAS_NUM_S) | SYSCON_SARADC_SAR1_INV | SYSCON_SARADC_SAR2_INV);
+    REG_WRITE(SYSCON_SARADC_CTRL2_REG, SYSCON_SARADC_MEAS_NUM_LIMIT | (250 << SYSCON_SARADC_MAX_MEAS_NUM_S) | SYSCON_SARADC_SAR1_INV | SYSCON_SARADC_SAR2_INV);
 
     // REG_CLR_BIT(SYSCON_SARADC_CTRL2_REG, SYSCON_SARADC_MEAS_NUM_LIMIT); //Doesn't work on ESP32 rev3; moved to start with delay instead
 
@@ -271,8 +284,8 @@ void chl_i2sanalog::_i2sanalog_intr_hdlr(void* arg) {
     chl_i2sanalog* _this = (chl_i2sanalog*)arg;
     portBASE_TYPE contsw_req = false;
     while(1) {
-        uint32_t curr_intr = REG_READ(I2S_INT_ST_REG(0));
-        if((curr_intr) == 0) {
+        uint32_t curr_intr = REG_READ(I2S_INT_RAW_REG(0));
+        if((curr_intr & I2SANALOG_INTERRUPTS_RAW) == 0) {
             break;
         }
         REG_WRITE(I2S_INT_CLR_REG(0), curr_intr);
@@ -283,12 +296,16 @@ void chl_i2sanalog::_i2sanalog_intr_hdlr(void* arg) {
                 curr_descr->eof = 0;
                 curr_descr->owner = 1;
                 if(curr_descr->length != 0) {
-                    //ets_printf("b %lu eof %u own %u sz %u len %u\r\n", REG_READ(I2S_INLINK_DSCR_REG(0)), curr_descr->eof, curr_descr->owner, curr_descr->size, curr_descr->length);
+                    // ets_printf("b %lu eof %u own %u sz %u len %u\r\n", REG_READ(I2S_INLINK_DSCR_REG(0)), curr_descr->eof, curr_descr->owner, curr_descr->size, curr_descr->length);
                     if(xStreamBufferSendFromISR(_this->_xRxStreamBuffer, (const void*)curr_descr->buf, curr_descr->length, &contsw_req) == pdFALSE) {
                         // ets_printf("O");
                     }
+                } else {
+                    ets_printf("z");
                 }
                 curr_descr->length = 0;
+            } else {
+                ets_printf("RXB!\n");
             }
         }
         if((curr_intr & I2S_OUT_DONE_INT_ST)) {

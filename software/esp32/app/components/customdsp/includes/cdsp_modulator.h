@@ -67,8 +67,28 @@ private:
     void _do_stop() override;
 };
 
-// #define CDSP_DEMOD_BFSK_FILT_GAIN 1.75f
-#define CDSP_DEMOD_BFSK_FILT_GAIN 1.0f
+class cdsp_mod_msk : public cdsp_block<uint8_t, cdsp_complex_t> {
+public:
+    cdsp_mod_msk(float fs, float datarate);
+    ~cdsp_mod_msk();
+    void setFs(float fs);
+    void setDataRate(float datarate);
+    float getDataRate();
+    static int IRAM_ATTR requestData(void* ctx, cdsp_complex_t* data, int samples_cnt);
+
+private:
+    cdsp_gen_sine_complex* _gen;
+    float _datarate;
+    float _fs;
+    float _incr;
+    float _ctr = 0;
+    uint8_t _curr_data;
+    int _preamble_ctr = 0;
+
+    void _do_start() override;
+    void _do_stop() override;
+};
+
 class cdsp_demod_bfsk : public cdsp_block<cdsp_complex_t, uint8_t> {
 public:
     cdsp_demod_bfsk(float fs, float fr0, float fr1, float datarate, float sync_loop_bw, float sync_damping, float sync_relLimit);
@@ -78,15 +98,14 @@ public:
     void setDataRate(float datarate);
     static int IRAM_ATTR requestData(void* ctx, uint8_t* data, int samples_cnt);
     static int IRAM_ATTR dcb_requestData(void* ctx, float* data, int samples_cnt);
+    static int IRAM_ATTR infilt_requestData(void* ctx, cdsp_complex_t* data, int samples_cnt);
 
 private:
     int _taps_cnt;
+    float* _filt_taps = NULL;
     cdsp_fir<float, float>* _filt = NULL;
     cdsp_dcblock<float>* _dcblock;
     cdsp_maximum_likelihood_tr<float>* _sync = NULL;
-    float* _filt_taps = NULL;
-    int _filt_ptr = 0;
-    float* _filt_buff = NULL;
     float _datarate = 0;
     float _fs = 0;
     float _incr;
@@ -96,6 +115,9 @@ private:
     cdsp_complex_t _prev_spl;
     float _syncmul;
     float _syncdiv;
+    cdsp_fir<float, cdsp_complex_t>* _infilt = NULL;
+    float* _infilt_taps = NULL;
+    int _infilt_taps_cnt;
 
     void _do_start() override;
     void _do_stop() override;
@@ -110,12 +132,13 @@ public:
     void setDataRate(float datarate);
     static int IRAM_ATTR requestData(void* ctx, uint8_t* data, int samples_cnt);
     static int IRAM_ATTR dcb_requestData(void* ctx, float* data, int samples_cnt);
+    static int IRAM_ATTR infilt_requestData(void* ctx, cdsp_complex_t* data, int samples_cnt);
 
 private:
     int _taps_cnt;
     cdsp_dcblock<float>* _dcblock;
     cdsp_maximum_likelihood_tr<float>* _sync = NULL;
-    float* _filt_taps;
+    float* _filt_taps = NULL;
     cdsp_fir<float, float>* _filt = NULL;
     float _datarate = 0;
     float _fs = 0;
@@ -132,7 +155,48 @@ private:
     cdsp_complex_t _prev_spl;
     float _syncmul;
     float _syncdiv;
+     cdsp_fir<float, cdsp_complex_t>* _infilt = NULL;
+    float* _infilt_taps = NULL;
+    int _infilt_taps_cnt;
+
 
     void _do_start() override;
     void _do_stop() override;
 };
+
+class cdsp_demod_msk : public cdsp_block<cdsp_complex_t, uint8_t> {
+public:
+    cdsp_demod_msk(float fs, float datarate, float sync_loop_bw, float sync_damping, float sync_relLimit);
+    ~cdsp_demod_msk();
+    void setFs(float fs);
+    void setDataRate(float datarate);
+    static int IRAM_ATTR requestData(void* ctx, uint8_t* data, int samples_cnt);
+    static int IRAM_ATTR dcb_requestData(void* ctx, float* data, int samples_cnt);
+    static int IRAM_ATTR infilt_requestData(void* ctx, cdsp_complex_t* data, int samples_cnt);
+
+private:
+    int _taps_cnt;
+    float* _filt_taps = NULL;
+    cdsp_fir<float, float>* _filt = NULL;
+    cdsp_maximum_likelihood_tr<float>* _sync = NULL;
+    float _datarate = 0;
+    float _fs = 0;
+    float _incr;
+    float _froffs = 0;
+    float _out_samples[CDSP_DEF_BUFF_SIZE];
+    cdsp_complex_t _in_samples[CDSP_DEF_BUFF_SIZE];
+    cdsp_complex_t _prev_spl;
+    float _syncmul;
+    float _syncdiv;
+    cdsp_fir<cdsp_complex_t, cdsp_complex_t>* _infilt = NULL;
+    cdsp_complex_t* _infilt_taps = NULL;
+    int _infilt_taps_cnt;
+    float _phacc = 0;
+    float _phacc2 = 0;
+    cdsp_complex_t _int_buff[CDSP_DEF_BUFF_SIZE*100];
+    int _int_buff_ptr = 0;
+
+    void _do_start() override;
+    void _do_stop() override;
+};
+

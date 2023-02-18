@@ -1,4 +1,5 @@
 #include "cdsp_fir_taps.h"
+#include <stdio.h>
 
 void cdsp_calc_taps_lpf_float(float* taps, int taps_cnt, float fs, float fcut, bool apply_window) {
     assert(taps_cnt >= 2);
@@ -62,13 +63,13 @@ void cdsp_calc_taps_complex_fromresp(cdsp_complex_t* resp, cdsp_complex_t* taps,
         taps[i] = 0;
         // float frFrac = ((float)(i-((taps_cnt-1)/2.0f)))/((float)taps_cnt);
         // float frFrac = (float)i/(float)taps_cnt;
+        float w = 1.0f;
+        if(apply_window) {
+                w = 0.42f - 0.5f * cosf(2.0f*FL_PI*(float)i/(float)(taps_cnt-1)) + 0.08f * cosf(4.0f * FL_PI *(float)i/(float)(taps_cnt-1));
+            }
         float fr = ((float)(i-((taps_cnt-1)/2.0f)));
         for(int m = 0; m < resp_cnt; m++) {
             float ph = 2.0f*FL_PI*fr*((float)m)/((float)(resp_cnt));
-            float w = 1.0f;
-            if(apply_window) {
-                w = 0.42f - 0.5f * cosf(2.0f*FL_PI*(float)i/(float)(taps_cnt-1)) + 0.08f * cosf(4.0f * FL_PI *(float)i/(float)(taps_cnt-1));
-            }
             // taps[i].i += resp[m].i * cosf(ph) * w;
             // taps[i].q += resp[m].q * sinf(ph) * w;
             cdsp_complex_t p;

@@ -28,6 +28,7 @@
 #define DMA_I2SANALOG_RX_LINK_BUFF_CNT 32
 
 #define I2SANALOG_INTERRUPTS_ENA (I2S_IN_SUC_EOF_INT_ENA | I2S_OUT_DONE_INT_ENA)
+#define I2SANALOG_INTERRUPTS_RAW (I2S_IN_SUC_EOF_INT_RAW | I2S_OUT_DONE_INT_RAW)
 
 #define I2SANALOG_APLL_MUL2 4
 #define I2SANALOG_APLL_MUL1 0
@@ -77,6 +78,7 @@ private:
     int _chl_i2sanalog_curr_inlink;
     lldesc_t* _chl_i2sanalog_dma_outlinks; //2
     int _chl_i2sanalog_curr_outlink;
+    int _dis_reset = 0;
 
     void _reset_module();
     static void IRAM_ATTR _i2sanalog_intr_hdlr(void* arg);
