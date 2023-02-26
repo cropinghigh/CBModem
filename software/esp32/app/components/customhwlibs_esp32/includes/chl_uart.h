@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_CHL_UART
+#define H_CHL_UART
 #include <soc/uart_periph.h>
 #include <soc/uhci_periph.h>
 #include <esp_attr.h>
@@ -56,4 +57,4 @@ private:
     void _config_gpio();
     static void IRAM_ATTR _uhci_intr_hdlr(void* arg);
 };
-
+#endif

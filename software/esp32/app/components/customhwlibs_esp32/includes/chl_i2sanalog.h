@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_CHL_I2SANALOG
+#define H_CHL_I2SANALOG
 #include <math.h>
 
 #include <soc/i2s_periph.h>
@@ -83,3 +84,4 @@ private:
     void _reset_module();
     static void IRAM_ATTR _i2sanalog_intr_hdlr(void* arg);
 };
+#endif

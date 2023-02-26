@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_CDSP_GEN
+#define H_CDSP_GEN
 #include <math.h>
 
 #include "cdsp_common.h"
@@ -29,3 +30,4 @@ private:
     float _fr = 0;
     float _incr = 1;
 };
+#endif

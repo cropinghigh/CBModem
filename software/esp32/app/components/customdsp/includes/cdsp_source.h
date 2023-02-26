@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_CDSP_SOURCE
+#define H_CDSP_SOURCE
 #include <math.h>
 #include "cdsp_common.h"
 #include "chl_i2sanalog.h"
@@ -12,6 +13,7 @@
 class cdsp_src_adc : public cdsp_block<void, cdsp_complex_t> {
 public:
     cdsp_src_adc(chl_i2sanalog* adc_dev, int adc_i_ch, int adc_q_ch, int adc_bitwidth);
+    void set_bitwidth(int new_bw);
     void setAdcChannels(int adc_i_ch, int adc_q_ch);
     static int IRAM_ATTR requestData(void* ctx, cdsp_complex_t* data, int samples_cnt);
 
@@ -25,3 +27,4 @@ private:
     void _do_start() override;
     void _do_stop() override;
 };
+#endif

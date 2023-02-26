@@ -9,6 +9,14 @@ chl_ext_si5351::chl_ext_si5351(uint8_t dev_addr, chl_i2c* drv, unsigned int xtal
 
 chl_ext_si5351::~chl_ext_si5351() {}
 
+void chl_ext_si5351::set_addr(uint8_t dev_addr) {
+	_addr = dev_addr;
+}
+
+void chl_ext_si5351::set_xtal_freq(uint32_t newfr) {
+	_xtal_freq = newfr;
+}
+
 int chl_ext_si5351::set_frequency(bool pllB, unsigned int target_freq) {
     uint8_t tmp[3];
     uint32_t curr_pll_a = (SI5351_MIN_PLL_FREQ / _xtal_freq);

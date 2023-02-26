@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_CDSP_CONVERTERS
+#define H_CDSP_CONVERTERS
 #include <math.h>
 #include "cdsp_common.h"
 
@@ -63,3 +64,4 @@ public:
 private:
     float _in_buff[CDSP_DEF_BUFF_SIZE];
 };
+#endif

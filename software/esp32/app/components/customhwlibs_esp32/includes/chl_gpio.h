@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_CHL_GPIO
+#define H_CHL_GPIO
 #include <soc/gpio_periph.h>
 #include <soc/rtc_periph.h>
 
@@ -159,3 +160,4 @@ inline void chl_rtc_gpio_set_dac1_value(uint8_t val) {
 inline void chl_rtc_gpio_set_dac2_value(uint8_t val) {
     REG_SET_FIELD(RTC_IO_PAD_DAC2_REG, RTC_IO_PDAC2_DAC, val);
 }
+#endif

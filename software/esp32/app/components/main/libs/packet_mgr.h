@@ -1,4 +1,7 @@
-#pragma once 
+#ifndef H_PACKET_MGR
+#define H_PACKET_MGR
+
+// #include "params.h"
 
 #define PACKETMGR_BUFF_SIZE 256
 #define SYNCWORD_32 0x47545A20
@@ -40,7 +43,7 @@ void packet_mgr::tx_data_incr() {
 }
 
 void packet_mgr::load_tx_data(uint8_t* data, int cnt) {
-    if(tx_data_buff_data != 0) { printf("TX DB O\n"); return; }
+    if(tx_data_buff_data != 0) { printf("TX DB OVF%d\n", tx_data_buff_data); return; }
     // int tmp = 0;
     tx_data_buff_data_r = 0;
     tx_data_buff_data_rbit = 0;
@@ -103,10 +106,10 @@ int find_bit_diffs(uint32_t a, uint32_t b) {
 }
 
 void packet_mgr::load_rx_data(uint8_t* data, int cnt) {
-    // printf("BITS ");
+//     printf("BITS ");
     for(int i = 0; i < cnt; i++) {
         int bit = (data[i] & 0b1);
-        // printf("%d", bit);
+//         printf("%d", bit);
         rx_shift_reg = rx_shift_reg >> 1;
         rx_shift_reg |= (bit << 31);
         if(rx_state == 1) { //Reading length
@@ -117,15 +120,15 @@ void packet_mgr::load_rx_data(uint8_t* data, int cnt) {
                 rx_data_buff_ptr++;
                 if(rx_data_buff_ptr >= 8) {
                     rx_len = 0;
-                    for(int i = 0; i < 8; i++) {
-                        rx_len |= (rx_data_buff[i] >= 4) << i;
+                    for(int k = 0; k < 8; k++) {
+                        rx_len |= (rx_data_buff[k] >= 4) << k;
                     }
                     rx_state = 2;
                     printf("LEN READ: %d(%d %d %d %d %d %d %d %d)\n", rx_len, rx_data_buff[0], rx_data_buff[1], rx_data_buff[2], rx_data_buff[3], rx_data_buff[4], rx_data_buff[5], rx_data_buff[6], rx_data_buff[7]);
                     rx_data_buff_bit = 0;
                     rx_data_buff_ptr = 0;
-                    for(int i = 0; i < rx_len; i++) {
-                        rx_data_buff[i] = 0;
+                    for(int k = 0; k < rx_len; k++) {
+                        rx_data_buff[k] = 0;
                     }
                 }
             }
@@ -137,8 +140,8 @@ void packet_mgr::load_rx_data(uint8_t* data, int cnt) {
                 if(rx_data_buff_ptr >= rx_len) {
                     rx_state = 0;
                     printf("DATA READ:");
-                    for(int i = 0; i < rx_len; i++) {
-                        printf(" %c", rx_data_buff[i]);
+                    for(int k = 0; k < rx_len; k++) {
+                        printf(" %c", rx_data_buff[k]);
                     }
                     printf("\n");
                 }
@@ -150,11 +153,16 @@ void packet_mgr::load_rx_data(uint8_t* data, int cnt) {
                 rx_state = 1;
                 rx_data_buff_ptr = 0;
                 rx_data_buff_bit = 0;
-                for(int i = 0; i < 8; i++) {
-                    rx_data_buff[i] = 0;
+                for(int k = 0; k < 8; k++) {
+                    rx_data_buff[k] = 0;
                 }
             }
         }
     }
-    // printf("\n");
+//     printf("\n");
 }
+
+
+
+#endif
+

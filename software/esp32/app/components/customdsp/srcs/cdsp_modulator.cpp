@@ -302,15 +302,15 @@ void cdsp_demod_bfsk::setFs(float fs) {
         _filt_taps = new float[_taps_cnt];
         _infilt_taps = new float[_infilt_taps_cnt];
         cdsp_calc_taps_lpf_float(_filt_taps, _taps_cnt, _fs, _datarate, true);
-        int nresp = 33;
+        int nresp = 65;
         cdsp_complex_t* resp = new cdsp_complex_t[nresp];
         for(int i = 0; i < nresp; i++) {
             float fr = (i - (nresp)/2.0f) / (float)nresp;
             float fr_hz = fr*_fs;
             float mag = 0.0000f;
-            if(fabsf(fr_hz) >= fabsf(_fr0-_datarate) && fabsf(fr_hz) <= fabsf(_fr0+_datarate)) {
+            if(fabsf(fr_hz) >= fabsf(_fr0*_fs-_datarate) && fabsf(fr_hz) <= fabsf(_fr0*_fs+_datarate)) {
                 mag = 1.0f;
-            } else if(fabsf(fr_hz) >= fabsf(_fr1-_datarate) && fabsf(fr_hz) <= fabsf(_fr1+_datarate)) {
+            } else if(fabsf(fr_hz) >= fabsf(_fr1*_fs-_datarate) && fabsf(fr_hz) <= fabsf(_fr1*_fs+_datarate)) {
                 mag = 1.0f;
             }
             resp[i].i = mag;
@@ -353,6 +353,10 @@ void cdsp_demod_bfsk::setDataRate(float datarate) {
     }
 }
 
+void cdsp_demod_bfsk::setLoopBw(float bw) {
+	_sync->setLoopBw(bw);
+}
+
 int cdsp_demod_bfsk::requestData(void* ctx, uint8_t* data, int samples_cnt) {
     cdsp_demod_bfsk* _this = (cdsp_demod_bfsk*) ctx;
     if(!_this->_running || _this->_incr <= 0) { return -2;}
@@ -367,6 +371,8 @@ int cdsp_demod_bfsk::requestData(void* ctx, uint8_t* data, int samples_cnt) {
     return got;
 }
 
+// int x = 0;
+
 int cdsp_demod_bfsk::dcb_requestData(void* ctx, float* data, int samples_cnt) {
     cdsp_demod_bfsk* _this = (cdsp_demod_bfsk*) ctx;
     if(!_this->_running || _this->_input_func==NULL || _this->_incr <= 0) {return -2;}
@@ -375,6 +381,8 @@ int cdsp_demod_bfsk::dcb_requestData(void* ctx, float* data, int samples_cnt) {
     int got = _this->_infilt->requestData(_this->_infilt, _this->_in_samples, req_samples);
     if(got <= 0) {return got;}
     for(int i = 0; i < got; i++) {
+        // printf("%d %f %f\n", x, _this->_in_samples[i].i, _this->_in_samples[i].q);
+        // x++;
         float fr_rel = (_this->_in_samples[i]*_this->_prev_spl.conj()).ph() * (1.0f/(2.0f*FL_PI)); //Interesting f/fs detector, stolen from gnuradio quadrature demod; works SIGNIFICANTLY better than coherent multiplication&filtering
         data[i] = fr_rel * _this->_syncmul;
 //         _this->_filt_buff[_this->_filt_ptr] = fr_rel;
@@ -511,6 +519,10 @@ void cdsp_demod_mfsk::setDataRate(float datarate) {
     }
 }
 
+void cdsp_demod_mfsk::setLoopBw(float bw) {
+	_sync->setLoopBw(bw);
+}
+
 int cdsp_demod_mfsk::requestData(void* ctx, uint8_t* data, int samples_cnt) {
     cdsp_demod_mfsk* _this = (cdsp_demod_mfsk*) ctx;
     if(!_this->_running || _this->_incr <= 0) { return -2;}
@@ -626,7 +638,7 @@ void cdsp_demod_msk::setFs(float fs) {
         // }
         int nresp = 33;
         cdsp_complex_t* resp = new cdsp_complex_t[nresp];
-        _froffs = 2*_datarate + 125.0f; //Required bc analog circuit works like shit with frequencies < ~50 Hz
+        _froffs = _datarate + 80.0f; //Required bc analog circuit works like shit with frequencies < ~50 Hz
         for(int i = 0; i < nresp; i++) {
             float fr = (i - (nresp)/2.0f) / (float)nresp;
             float fr_hz = fr*_fs;
@@ -671,6 +683,10 @@ int cdsp_demod_msk::requestData(void* ctx, uint8_t* data, int samples_cnt) {
         data[i] = (_this->_out_samples[i] >= 0) ? 1 : 0;
     }
     return got;
+}
+
+void cdsp_demod_msk::setLoopBw(float bw) {
+	_sync->setLoopBw(bw);
 }
 
 int cdsp_demod_msk::dcb_requestData(void* ctx, float* data, int samples_cnt) {

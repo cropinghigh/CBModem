@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_CDSP_TIMING_RECOVERY
+#define H_CDSP_TIMING_RECOVERY
 #include <math.h>
 #include "stdio.h"
 
@@ -49,3 +50,4 @@ private:
     void _do_start() override;
     void _do_stop() override;
 };
+#endif

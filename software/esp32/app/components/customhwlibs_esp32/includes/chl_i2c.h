@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_CHL_I2C
+#define H_CHL_I2C
 #include <soc/i2c_periph.h>
 #include <esp_attr.h>
 #include <esp_intr_alloc.h>
@@ -57,3 +58,4 @@ private:
     void _config_gpio();
     static void IRAM_ATTR _i2c_intr_hdlr(void* arg);
 };
+#endif

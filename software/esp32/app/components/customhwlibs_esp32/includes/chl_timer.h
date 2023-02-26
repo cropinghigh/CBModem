@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_CHL_TIMER
+#define H_CHL_TIMER
 #include <esp_attr.h>
 #include <esp_intr_alloc.h>
 #include <soc/timer_group_reg.h>
@@ -30,3 +31,4 @@ private:
 
     static void IRAM_ATTR _timer_intr_hdlr(void* arg);
 };
+#endif

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_CDSP_COMMON
+#define H_CDSP_COMMON
 #include <type_traits>
 
 #include <stdint.h>
@@ -139,3 +140,4 @@ protected:
     virtual void _do_start() {}
     virtual void _do_stop() {}
 };
+#endif

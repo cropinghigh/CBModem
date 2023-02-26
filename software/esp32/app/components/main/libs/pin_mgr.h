@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_PIN_MGR
+#define H_PIN_MGR
 
 #include "chl_gpio.h"
 
@@ -59,3 +60,7 @@ namespace pin_mgr {
         chl_gpio_set_level(RX_LED_GPIO, en);
     }
 };
+
+
+#endif
+

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_CDSP_MODULATOR
+#define H_CDSP_MODULATOR
 #include <math.h>
 #include <algorithm>
 
@@ -96,6 +97,7 @@ public:
     void setFs(float fs);
     void setFrs(float fr0, float fr1);
     void setDataRate(float datarate);
+    void setLoopBw(float bw);
     static int IRAM_ATTR requestData(void* ctx, uint8_t* data, int samples_cnt);
     static int IRAM_ATTR dcb_requestData(void* ctx, float* data, int samples_cnt);
     static int IRAM_ATTR infilt_requestData(void* ctx, cdsp_complex_t* data, int samples_cnt);
@@ -130,6 +132,7 @@ public:
     void setFs(float fs);
     void setFrs(int frcnt, float* frs);
     void setDataRate(float datarate);
+    void setLoopBw(float bw);
     static int IRAM_ATTR requestData(void* ctx, uint8_t* data, int samples_cnt);
     static int IRAM_ATTR dcb_requestData(void* ctx, float* data, int samples_cnt);
     static int IRAM_ATTR infilt_requestData(void* ctx, cdsp_complex_t* data, int samples_cnt);
@@ -170,6 +173,7 @@ public:
     ~cdsp_demod_msk();
     void setFs(float fs);
     void setDataRate(float datarate);
+    void setLoopBw(float bw);
     static int IRAM_ATTR requestData(void* ctx, uint8_t* data, int samples_cnt);
     static int IRAM_ATTR dcb_requestData(void* ctx, float* data, int samples_cnt);
     static int IRAM_ATTR infilt_requestData(void* ctx, cdsp_complex_t* data, int samples_cnt);
@@ -199,4 +203,4 @@ private:
     void _do_start() override;
     void _do_stop() override;
 };
-
+#endif

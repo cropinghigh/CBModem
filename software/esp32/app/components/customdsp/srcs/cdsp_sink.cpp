@@ -191,14 +191,14 @@ cdsp_sink_combined::cdsp_sink_combined(chl_i2sanalog* dac_dev, chl_ext_si5351* s
     _compensA = compensA;
     _compensB = compensB;
     _taps_cnt = taps_cnt;
-    sink_dac = new cdsp_sink_dac(dac_dev, dac_out_ch);
-    sink_si = new cdsp_sink_si5351_fr(si5351_dev, pll, timer_rate);
     _interp = interp;
-    _timer_rate = timer_rate;
+	_timer_rate = timer_rate;
+    sink_dac = new cdsp_sink_dac(dac_dev, dac_out_ch);
+    sink_si = new cdsp_sink_si5351_fr(si5351_dev, pll, _timer_rate);
 
     _interpol = new cdsp_rational_interpolator<float>(_interp);
     _interpol_fir_taps = new float[_taps_cnt];
-    cdsp_calc_taps_lpf_float(_interpol_fir_taps, _taps_cnt, timer_rate*_interp, timer_rate/2.0f, true);
+    cdsp_calc_taps_lpf_float(_interpol_fir_taps, _taps_cnt, _timer_rate*_interp, _timer_rate/2.0f, true);
     _interpol_fir = new cdsp_fir<float, float>(_taps_cnt, _interpol_fir_taps);
     sink_dac->setInputBlk(_interpol_fir, _interpol_fir->requestData);
     _interpol_fir->setInputBlk(_interpol, _interpol->requestData);
@@ -210,6 +210,29 @@ cdsp_sink_combined::~cdsp_sink_combined() {
     delete sink_si;
     delete _interpol;
     delete[] _interpol_fir_taps;
+}
+
+void cdsp_sink_combined::setCompens(int compensA, int compensB) {
+	_compensA = compensA;
+	_compensB = compensB;
+}
+
+void cdsp_sink_combined::setSr(int timer_rate, int interp) {
+	_interp = interp;
+	_timer_rate = timer_rate;
+	_interpol->setInterpolation(_interp);
+	cdsp_calc_taps_lpf_float(_interpol_fir_taps, _taps_cnt, _timer_rate*_interp, _timer_rate/2.0f, true);
+	sink_si->setTimerRate(_timer_rate);
+}
+
+void cdsp_sink_combined::setTaps(int taps_cnt) {
+	_taps_cnt = taps_cnt;
+	if(_interpol_fir_taps != NULL) {
+		delete[] _interpol_fir_taps;
+	}
+	_interpol_fir_taps = new float[_taps_cnt];
+	cdsp_calc_taps_lpf_float(_interpol_fir_taps, _taps_cnt, _timer_rate*_interp, _timer_rate/2.0f, true);
+	_interpol_fir->setTaps(_taps_cnt, _interpol_fir_taps);
 }
 
 int cdsp_sink_combined::work(void* ctx, int samples_cnt) {

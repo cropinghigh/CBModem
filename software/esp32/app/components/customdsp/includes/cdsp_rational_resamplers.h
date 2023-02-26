@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_CDSP_RATIONAL_RESAMPLERS
+#define H_CDSP_RATIONAL_RESAMPLERS
 #include <math.h>
 #include "cdsp_common.h"
 
@@ -40,3 +41,4 @@ private:
     void _do_start() override;
     void _do_stop() override;
 };
+#endif

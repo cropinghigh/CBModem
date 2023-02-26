@@ -11,6 +11,11 @@ cdsp_src_adc::cdsp_src_adc(chl_i2sanalog* adc_dev, int adc_i_ch, int adc_q_ch, i
     _adc_dev->configureADC(adc_i_ch, adc_q_ch, _adc_bitwidth, ADC_ATTEN); 
 }
 
+void cdsp_src_adc::set_bitwidth(int new_bw) {
+	_adc_bitwidth = new_bw;
+	_convert_divisor = 2.0f / (float)(1 << _adc_bitwidth);
+}
+
 void cdsp_src_adc::setAdcChannels(int adc_i_ch, int adc_q_ch) {
     _adc_i_ch = adc_i_ch;
     _adc_q_ch = adc_q_ch;

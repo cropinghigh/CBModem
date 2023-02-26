@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_CDSP_FIR
+#define H_CDSP_FIR
 #include <math.h>
 #include "cdsp_common.h"
 
@@ -20,3 +21,4 @@ private:
 
     inline void _do_work(SPLS_T* in, SPLS_T* out, int cnt);
 };
+#endif

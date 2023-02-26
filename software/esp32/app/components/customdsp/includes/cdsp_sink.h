@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_CDSP_SINK
+#define H_CDSP_SINK
 #include <math.h>
 
 #include <freertos/FreeRTOS.h>
@@ -70,6 +71,9 @@ class cdsp_sink_combined : public cdsp_block<cdsp_complex_t, void> {
 public:
     cdsp_sink_combined(chl_i2sanalog* dac_dev, chl_ext_si5351* si5351_dev, int compensA, int compensB, bool dac_out_ch, bool pll, int timer_rate, int interp, int taps_cnt);
     ~cdsp_sink_combined();
+    void setCompens(int compensA, int compensB);
+    void setSr(int timer_rate, int interp);
+    void setTaps(int taps_cnt);
     static int IRAM_ATTR work(void* ctx, int samples_cnt);
     static int IRAM_ATTR amplf_req_func(void* ctx, float* data, int samples_cnt);
 
@@ -109,3 +113,4 @@ private:
     void _do_start() override;
     void _do_stop() override;
 };
+#endif

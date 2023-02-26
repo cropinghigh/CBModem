@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_CHL_EXT_SI5351
+#define H_CHL_EXT_SI5351
 
 #include <math.h>
 #include "chl_i2c.h"
@@ -27,6 +28,8 @@ class chl_ext_si5351 {
 public:
     chl_ext_si5351(uint8_t dev_addr, chl_i2c* drv, unsigned int xtal_freq);
     ~chl_ext_si5351();
+    void set_addr(uint8_t dev_addr);
+    void set_xtal_freq(uint32_t newfr);
     int set_frequency(bool pllB, unsigned int target_freq);
     bool reset_pll(int pll);
     bool set_pll_frequency_shift(bool pllB, int32_t target_shift_hz);
@@ -62,3 +65,4 @@ private:
     //Fast PLL multipler's fractional part change for modulation; WARNING: _sync_set_divider for target pll should be called first!!!
     void IRAM_ATTR _fast_change_pll_mul(bool pllB, uint32_t a, uint32_t b, int* yield);
 };
+#endif

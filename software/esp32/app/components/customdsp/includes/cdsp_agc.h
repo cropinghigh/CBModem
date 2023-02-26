@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_CDSP_AGC
+#define H_CDSP_AGC
 #include <math.h>
 
 #include "cdsp_common.h" 
@@ -38,3 +39,4 @@ private:
     void _do_start() override;
     void _do_stop() override;
 };
+#endif
