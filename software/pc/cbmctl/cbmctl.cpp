@@ -1,6 +1,7 @@
 #include <iostream>
 #include <map>
 #include "../../esp32/app/components/main/libs/pc_interface.h"
+#include "../../esp32/app/components/main/libs/checksum.h"
 #include <errno.h>
 #include <sys/ioctl.h>
 #include <termios.h>
@@ -130,7 +131,7 @@ class ModemPacketInterface {
             tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL); // Disable any special handling of received bytess
             tty.c_cc[VTIME] = 1;
             tty.c_cc[VMIN] = 0;
-            if (cfsetspeed(&(tty), B921600)) {
+            if (cfsetspeed(&(tty), B1000000)) {
                 printf("ModemPI: cfsetispeed() failed! Error: %s\n", strerror(errno));
                 close(fd);
                 return false;
@@ -146,11 +147,13 @@ class ModemPacketInterface {
             tx_queue.setWorking(true);
             tx_thr = new std::thread(tx_thread_func, this);
             rx_thr = new std::thread(rx_thread_func, this);
+            working = true;
             return true;
         }
 
         void stop() {
             tty_mtx.unlock();
+            working = false;
 
             if (fd != -1) {
                 uint8_t newmode = pc_packet_interface::modes::PC_PI_MODE_UNINITED;
@@ -178,6 +181,8 @@ class ModemPacketInterface {
             int state = 0; //0-receiving startByte; 1-receiving type; 2-receiving len; 3-receiving data; 4-receiving checksum
             int outdata_pos = 0;
             pc_packet_interface::pc_packet readp;
+            uint8_t checksum_buff[sizeof(pc_packet_interface::pc_packet)];
+            checksum_buff[0] = pc_packet_interface::startByte;
             while (1) {
                 while (_this->packet_read_buff_data > 0) {
 //              if((_this->packet_read_buff[_this->packet_read_buff_pos] < 0x20 || _this->packet_read_buff[_this->packet_read_buff_pos] > 0x7F) && _this->packet_read_buff[_this->packet_read_buff_pos] != '\n' && _this->packet_read_buff[_this->packet_read_buff_pos] != '\r') {
@@ -191,19 +196,23 @@ class ModemPacketInterface {
                             state = 1;
 //                         printf("s1\n");
                         } else {
-                            if ((_this->packet_read_buff[_this->packet_read_buff_pos] < 0x20 || _this->packet_read_buff[_this->packet_read_buff_pos] > 0x7F) && _this->packet_read_buff[_this->packet_read_buff_pos] != '\n' && _this->packet_read_buff[_this->packet_read_buff_pos] != '\r') {
-                                printf("[%x]", _this->packet_read_buff[_this->packet_read_buff_pos]);
-                            } else {
-                                printf("%c", _this->packet_read_buff[_this->packet_read_buff_pos]);
+                            if(_this->packet_read_buff[_this->packet_read_buff_pos] != 0x00) {
+                                if ((_this->packet_read_buff[_this->packet_read_buff_pos] < 0x20 || _this->packet_read_buff[_this->packet_read_buff_pos] > 0x7F) && _this->packet_read_buff[_this->packet_read_buff_pos] != '\n' && _this->packet_read_buff[_this->packet_read_buff_pos] != '\r') {
+                                    printf("[%x]", _this->packet_read_buff[_this->packet_read_buff_pos]);
+                                } else {
+                                    printf("%c", _this->packet_read_buff[_this->packet_read_buff_pos]);
+                                }
+                                fflush(stdout);
                             }
-                            fflush(stdout);
                         }
                     } else if (state == 1) {
                         readp.type = _this->packet_read_buff[_this->packet_read_buff_pos];
+                        checksum_buff[1] = readp.type;
                         state = 2;
 //                    printf("s2 %d\n", readp.type);
                     } else if (state == 2) {
                         readp.len = _this->packet_read_buff[_this->packet_read_buff_pos];
+                        checksum_buff[2] = readp.len;
                         if (readp.len == 0) {
                             state = 4;
 //                         printf("s4\n");
@@ -213,6 +222,7 @@ class ModemPacketInterface {
                         }
                     } else if (state == 3) {
                         readp.data[outdata_pos] = _this->packet_read_buff[_this->packet_read_buff_pos];
+                        checksum_buff[3+outdata_pos] = readp.data[outdata_pos];
                         outdata_pos++;
                         if (outdata_pos >= readp.len) {
                             state = 4;
@@ -220,15 +230,19 @@ class ModemPacketInterface {
                         }
                     } else if (state == 4) {
                         readp.checksum = _this->packet_read_buff[_this->packet_read_buff_pos];
-                        //TODO: checksum check
+                        uint8_t calc_checksum = calc_crc8(checksum_buff, 3+outdata_pos);
 //                    printf("Shpack read: t %d l %d d0 %d c %d\n", readp.type, readp.len, (readp.len == 0 ? 0 : readp.data[0]), readp.checksum);
                         _this->packet_read_buff_pos++;
                         _this->packet_read_buff_data--;
                         state = 0;
                         outdata_pos = 0;
-                        if (!_this->rx_queue.push(readp)) {
-                            _this->rx_queue.setWorking(false);
-                            return;
+                        if(calc_checksum == readp.checksum) {
+                            if (!_this->rx_queue.push(readp)) {
+                                _this->rx_queue.setWorking(false);
+                                return;
+                            }
+                        } else {
+                            printf("HOST WRONG CRC(%x %x %d %d)!\n", calc_checksum, readp.checksum, readp.len, 3+outdata_pos);
                         }
                         //Read success
                     }
@@ -262,17 +276,18 @@ class ModemPacketInterface {
                     _this->tx_queue.setWorking(false);
                     return;
                 }
-                int bufs = 4 + sendp.len;
+                int bufs = 5 + sendp.len;
                 uint8_t packet_send_buff[bufs];
-                packet_send_buff[0] = pc_packet_interface::startByte;
-                packet_send_buff[1] = sendp.type;
-                packet_send_buff[2] = sendp.len;
+                packet_send_buff[0] = 0xaa;
+                packet_send_buff[1] = pc_packet_interface::startByte;
+                packet_send_buff[2] = sendp.type;
+                packet_send_buff[3] = sendp.len;
                 if (sendp.len > 0) {
                     for (int i = 0; i < sendp.len; i++) {
-                        packet_send_buff[3 + i] = sendp.data[i];
+                        packet_send_buff[4 + i] = sendp.data[i];
                     }
                 }
-                packet_send_buff[3 + sendp.len] = 0; //TODO: checksum
+                packet_send_buff[4 + sendp.len] = calc_crc8(&packet_send_buff[1], 3+sendp.len);
                 if (_this->fd < 0) {
                     _this->tx_queue.setWorking(false);
                     return;
@@ -286,7 +301,17 @@ class ModemPacketInterface {
 //              }
 //            }
 //            printf("\n");
-                write(_this->fd, packet_send_buff, bufs);
+                write(_this->fd, &packet_send_buff[0], 1);
+                usleep(10000UL);
+                write(_this->fd, &packet_send_buff[1], 1);
+                usleep(10000UL);
+
+                for(int i = 2; i < bufs; i+=16) {
+                    write(_this->fd, &packet_send_buff[i], std::min(16, bufs-i));
+                    fsync(_this->fd);
+                    usleep(5000);
+                }
+//                write(_this->fd, packet_send_buff, bufs);
             }
         }
 
@@ -340,7 +365,7 @@ class ModemPacketInterface {
                 while (1) {
                     pc_packet_interface::pc_packet p;
                     int ret = read_packet(p);
-                    if (ret == -1) {
+                    if (ret == -1 || !working) {
                         printf("ModemPI: Init packet read failed!\n");
                         return;
                     } else if(ret == -2) {
@@ -454,8 +479,8 @@ class ModemPacketInterface {
             }
             while (1) {
                 int ret = read_packet(p);
-                if (ret != 0) {
-                    if (ret == -1) {
+                if (ret != 0 || !working) {
+                    if (ret == -1 || !working) {
                         return;
                     } else {
                         continue;
@@ -525,7 +550,7 @@ class ModemPacketInterface {
             // printf("Spls mtx lock\n");
             while (1) {
                 pc_packet_interface::pc_packet p;
-                if (read_packet(p) != 0) {
+                if (read_packet(p) != 0 || !working) {
                     return -1;
                 }
                 if (p.type == pc_packet_interface::packetType_fromdev::PC_PI_PTD_SDR_RX_DATA) {
@@ -546,18 +571,37 @@ class ModemPacketInterface {
             while (1) {
                 pc_packet_interface::pc_packet p;
                 int ret = read_packet(p);
-                if (ret != 0) {
+                if (ret != 0 || !working) {
                     return ret;
                 }
                 if (p.type == pc_packet_interface::packetType_fromdev::PC_PI_PTD_N_RX_DATA) {
-                    for (int i = 0; i < p.len; i++) {
-                        if (i >= maxsz - 1) {
-                            break;
+                    uint8_t ptypeerrs = p.data[0];
+                    uint8_t ptype = (ptypeerrs & 0b11000000) >> 6;
+                    uint8_t errs = ptypeerrs & 0b111111;
+                    if(ptype == 0) {
+                        data[0] = errs;
+                        return -10;
+                    } else if(ptype == 1) {
+                        data[0] = errs;
+                        return -11;
+                    } else if(ptype == 3) {
+                        return -13;
+                    } else if(ptype == 2) {
+                        uint8_t dlen = p.len - 1;
+                        for (int i = 0; i < dlen; i++) {
+                            if (i >= maxsz - 1) {
+                                break;
+                            }
+                            data[i] = p.data[i+1];
                         }
-                        data[i] = p.data[i];
+                        if(errs == 0) {
+                            return dlen;
+                        } else if(errs == 2) {
+                            return 2000 + dlen;
+                        } else {
+                            return 1000 + dlen;
+                        }
                     }
-                    // printf("Spls mtx unlock\n");
-                    return p.len;
                 }
             }
         }
@@ -568,7 +612,7 @@ class ModemPacketInterface {
             while (1) {
                 pc_packet_interface::pc_packet p;
                 int ret = read_packet(p);
-                if (ret != 0) {
+                if (ret != 0 || !working) {
                     return;
                 }
                 if (p.type == pc_packet_interface::packetType_fromdev::PC_PI_PTD_N_TRANSMIT_COMPL) {
@@ -594,7 +638,7 @@ class ModemPacketInterface {
             while (1) {
                 pc_packet_interface::pc_packet rp;
                 int ret = read_packet(rp);
-                if (ret != 0) {
+                if (ret != 0 || !working) {
                     return -1;
                 }
                 if (rp.type == pc_packet_interface::packetType_fromdev::PC_PI_PTD_PARAM_DATA) {
@@ -641,6 +685,7 @@ class ModemPacketInterface {
 
         struct termios tty;
         int fd = -1;
+        bool working = false;
         int none_flag = 0;
         int RTS_flag = TIOCM_RTS;
         int DTR_flag = TIOCM_DTR;
@@ -885,11 +930,14 @@ int parseArg(int argc, int *position, char *argv[], std::map<std::string,
 
 ModemPacketInterface modemPI;
 std::atomic<bool> interactiveModeRun(true);
+std::mutex interactModeMtx;
+int interactModeSpd = 1;
 std::thread *interactiveModeThread = NULL;
 
 void signal_callback_handler(int signum) {
     std::cout << "Caught signal " << signum << std::endl;
     interactiveModeRun.store(false);
+    modemPI.working = false;
 //   printf("stopping pi\n");
 //   modemPI.stop();
 //   printf("stopping thrd\n");
@@ -914,17 +962,88 @@ void interactive_mode_read() {
         int ret = poll(&pfd, 1, 100);
         if (ret > 0 && (pfd.revents & pfd.events)) {
             std::getline(std::cin, buffer);
-            if (std::cin.bad() || std::cin.fail() || std::cin.eof()) {
-                break;
+            int attempts;
+            for(attempts = 3; attempts > 0 && interactiveModeRun.load(); attempts--) {
+                std::lock_guard<std::mutex> lock(interactModeMtx);
+                if (std::cin.bad() || std::cin.fail() || std::cin.eof()) {
+                    break;
+                }
+                printf("TX(%d) | < %s ", buffer.length(), buffer.c_str());
+                fflush(stdout);
+                modemPI.put_tx_data((char*) buffer.c_str(), buffer.length());
+                modemPI.start_tx_wait();
+                printf("| SENT ");
+                fflush(stdout);
+                bool started = false;
+                bool waiting = true;
+                std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+                while((waiting || started) && interactiveModeRun.load()) {
+                    char data[257];
+                    int l = modemPI.receive_rx_data(data, 256);
+                    if (l < 0) {
+                        if (l == -1) {
+                            std::cerr << "RX error!" << std::endl;
+                            break;
+                        }
+                        if(l == -10) {
+                            printf("| RX SW %d ", data[0]);
+                            fflush(stdout);
+                            started = true;
+                        }
+                        if(l == -13) {
+                            printf("| ACK \n");
+                            attempts = 0;
+                            break;
+                        }
+                    }
+                    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+                    uint32_t required_time = (1000000UL / (interactModeSpd)) * 128;
+                    if(std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() >= required_time && !started) {
+                        printf("| NACK \n");
+                        waiting = false;
+                    }
+                }
             }
-            modemPI.put_tx_data((char*) buffer.c_str(), buffer.length());
-            modemPI.start_tx_wait();
         }
         if (std::cin.bad() || std::cin.fail() || std::cin.eof()) {
             break;
         }
     }
     interactiveModeRun.store(false);
+}
+
+int do_receive() {
+    char data[257];
+    int l = modemPI.receive_rx_data(data, 256);
+    if (l < 0) {
+        if (l == -1) {
+            std::cerr << "RX error!" << std::endl;
+            return -1;
+        }
+        if(l == -10) {
+            printf("RX SW %d ", data[0]);
+            fflush(stdout);
+        }
+        if(l == -11) {
+            printf("| LEN %d ", data[0]);
+            fflush(stdout);
+        }
+        if(l == -13) {
+            printf("| ACK\n");
+        }
+        return 0;
+    }
+    if(l > 2000) {
+        printf("| DUP! ");
+        l -= 2000;
+    }
+    if(l > 1000) {
+        printf("| BAD CRC! ");
+        l -= 1000;
+    }
+    data[l] = '\0';
+    printf("| > %s\n", data);
+    return 0;
 }
 
 int main(int argc, char **argv) {
@@ -965,7 +1084,6 @@ int main(int argc, char **argv) {
             (params.find("receive") == params.end()) ? -2 : std::strtol(params["receive"].c_str(), &n, 10);
     std::string transmit =
             (params.find("transmit") == params.end()) ? "" : params["transmit"];
-    std::binary_semaphore lock(0);
     float fr = centerFreq;
 
     if (!modemPI.start(tty)) {
@@ -1042,30 +1160,31 @@ int main(int argc, char **argv) {
         retval = 1;
         goto _end;
     }
+    if(fr == -1) {
+        std::cerr << "Invalid freq!" << std::endl;
+        retval = 1;
+        goto _end;
+    }
     modemPI.change_mode(newmode, !noReset);
     modemPI.set_speed(speed, freqDiff, frcnt);
+    interactModeSpd = speed;
     modemPI.set_fr(fr);
     signal(SIGINT, signal_callback_handler);
 
     if (carrierTx) {
         modemPI.start_tx_carrier();
-        lock.acquire(); //lock forever
+        while(interactiveModeRun.load()) {
+            usleep(500);
+        }
     } else if (receive != -2) {
         modemPI.start_rx();
         if (receive == -1) {
             while (interactiveModeRun.load()) {
-                char data[257];
-                int l = modemPI.receive_rx_data(data, 256);
-                if (l < 0) {
-                    if (l == -1) {
-                        std::cerr << "RX error!" << std::endl;
-                        retval = 1;
-                        goto _end;
-                    }
-                    continue;
+                int ret = do_receive();
+                if(ret == -1) {
+                    retval = 1;
+                    goto _end;
                 }
-                data[l] = '\0';
-                printf("RX msg: %s", data);
             }
         } else if (receive == -3) {
             modemPI.start_rx();
@@ -1075,7 +1194,6 @@ int main(int argc, char **argv) {
                 int r = modemPI.receive_sdr_rx_samples(in_buff);
                 if (r < 1) {
                     printf("ModemTestSourceModule: Samples read failed!\n");
-                    modemPI.stop();
                     retval = 1;
                     goto _end;
                 }
@@ -1090,18 +1208,11 @@ int main(int argc, char **argv) {
         } else {
             int x = 0;
             while (x < receive && interactiveModeRun.load()) {
-                char data[257];
-                int l = modemPI.receive_rx_data(data, 256);
-                if (l < 0) {
-                    if (l == -1) {
-                        std::cerr << "RX error!" << std::endl;
-                        retval = 1;
-                        goto _end;
-                    }
-                    continue;
+                int ret = do_receive();
+                if(ret == -1) {
+                    retval = 1;
+                    goto _end;
                 }
-                data[l] = '\0';
-                printf("RX msg: %s", data);
                 x++;
             }
         }
@@ -1115,19 +1226,16 @@ int main(int argc, char **argv) {
         interactiveModeThread = new std::thread(interactive_mode_read);
         modemPI.start_rx();
         while (interactiveModeRun.load()) {
-            char data[257];
-            int l = modemPI.receive_rx_data(data, 256);
-            usleep(500);
-            if (l < 0) {
-                if (l == -1) {
-                    std::cerr << "RX error!" << std::endl;
+            {
+                std::lock_guard<std::mutex> lock(interactModeMtx);
+                int ret = do_receive();
+                if(ret == -1) {
                     retval = 1;
                     goto _end;
                 }
-                continue;
             }
-            data[l] = '\0';
-            printf("> %s", data);
+            usleep(500);
+
         }
         modemPI.stop_rx();
         std::fclose(stdin);

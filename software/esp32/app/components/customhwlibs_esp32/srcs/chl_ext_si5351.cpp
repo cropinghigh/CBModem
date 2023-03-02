@@ -20,6 +20,13 @@ void chl_ext_si5351::set_xtal_freq(uint32_t newfr) {
 int chl_ext_si5351::set_frequency(bool pllB, unsigned int target_freq) {
     uint8_t tmp[3];
     uint32_t curr_pll_a = (SI5351_MIN_PLL_FREQ / _xtal_freq);
+    if(target_freq >= 26020000 && target_freq <= 26980000) {
+        _center_b = target_freq - 26000000; //To make it round
+    } else if(target_freq >= 27020000 && target_freq <= 27980000) {
+        _center_b = target_freq - 27000000;
+    } else {
+        _center_b = 500000;
+    }
     uint32_t curr_pll_b = _center_b;
     uint32_t curr_ms_a = ((_xtal_freq * (curr_pll_a + curr_pll_b/SI5351_FRACTIONAL_DIVIER)) / target_freq);
     uint32_t curr_ms_b = (((_xtal_freq * (curr_pll_a + curr_pll_b/SI5351_FRACTIONAL_DIVIER)) / target_freq) * SI5351_FRACTIONAL_DIVIER) % SI5351_FRACTIONAL_DIVIER;

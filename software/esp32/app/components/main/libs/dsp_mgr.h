@@ -71,7 +71,7 @@
  dm_txspls - Samples count per transmitting operation, def=128
  dm_rxspls - Samples count per normal receiving operation, def=4
  dm_sdrrxspls - Samples count per SDR receiving operation, def=16
- dm_loopbw - Receiving timing recovery loop bandwidth, def=0.0002
+ dm_loopbw - Receiving timing recovery loop bandwidth, def=0.0005
  */
 
 //Namespace is better than class with only static functions
@@ -645,7 +645,7 @@ void dsp_mgr::n_bfsk_set_params(float fr0, float fr1, float speed) {
         dsp_n_bfskmod->setDataRate(speed);
         dsp_n_bfskdemod->setFrs(fr0, fr1);
         dsp_n_bfskdemod->setDataRate(speed);
-        uint32_t loopbw_def = std::bit_cast < uint32_t > (0.0002f);
+        uint32_t loopbw_def = std::bit_cast < uint32_t > (0.0005f);
         uint32_t raw_loopbw = params::readParam("dm_loopbw", loopbw_def);
         float loopbw = std::bit_cast<float>(raw_loopbw);
         dsp_n_bfskdemod->setLoopBw((params::readParam("dm_rnsr", 2000) / speed) * loopbw);
@@ -737,7 +737,7 @@ void dsp_mgr::n_mfsk_set_params(int frcnt, float *frs, float speed) {
         dsp_n_mfskmod->setDataRate(speed);
         dsp_n_mfskdemod->setFrs(frcnt, frs);
         dsp_n_mfskdemod->setDataRate(speed);
-        uint32_t loopbw_def = std::bit_cast < uint32_t > (0.0002f);
+        uint32_t loopbw_def = std::bit_cast < uint32_t > (0.0005f);
         uint32_t raw_loopbw = params::readParam("dm_loopbw", loopbw_def);
         float loopbw = std::bit_cast<float>(raw_loopbw);
         dsp_n_mfskdemod->setLoopBw((params::readParam("dm_rnsr", 2000) / speed) * loopbw);
@@ -746,6 +746,10 @@ void dsp_mgr::n_mfsk_set_params(int frcnt, float *frs, float speed) {
 }
 
 void dsp_mgr::n_mfsk_tx_start() {
+    if (curr_mode == DSPMGR_MODE_MFSK_RX) {
+        n_mfsk_rx_stop(false);
+        rx_paused = true;
+    }
     if (curr_mode == DSPMGR_MODE_IDLE) {
         lock_dsp_mtx();
         //Configure blocks, calculate taps
@@ -753,17 +757,6 @@ void dsp_mgr::n_mfsk_tx_start() {
         dsp_maincombsink->setInputBlk(dsp_n_mfskmod, dsp_n_mfskmod->requestData);
         //Start last block
         curr_mode = DSPMGR_MODE_MFSK_TX;
-        general_tx_start();
-        unlock_dsp_mtx();
-    } else if(curr_mode == DSPMGR_MODE_MFSK_RX) {
-        n_mfsk_rx_stop(false);
-        lock_dsp_mtx();
-        //Configure blocks, calculate taps
-        //Make the chain
-        dsp_maincombsink->setInputBlk(dsp_n_mfskmod, dsp_n_mfskmod->requestData);
-        //Start last block
-        curr_mode = DSPMGR_MODE_MFSK_TX;
-        rx_paused = true;
         general_tx_start();
         unlock_dsp_mtx();
     }
@@ -776,14 +769,15 @@ void dsp_mgr::n_mfsk_tx_stop(bool from_dspc) {
         }
         curr_mode = DSPMGR_MODE_IDLE;
         general_tx_stop();
-        if(rx_paused) {
-            n_mfsk_rx_start();
-            rx_paused = false;
-        }
+
         if (!from_dspc) {
             notifyDspTask();
             unlock_dsp_mtx();
         }
+    }
+    if(rx_paused) {
+        n_mfsk_rx_start();
+        rx_paused = false;
     }
 }
 
@@ -830,33 +824,25 @@ void dsp_mgr::n_msk_set_params(float speed) {
         lock_dsp_mtx();
         dsp_n_mskmod->setDataRate(speed);
         dsp_n_mskdemod->setDataRate(speed);
-        uint32_t loopbw_def = std::bit_cast < uint32_t > (0.0002f);
+        uint32_t loopbw_def = std::bit_cast < uint32_t > (0.0005f);
         uint32_t raw_loopbw = params::readParam("dm_loopbw", loopbw_def);
-        float loopbw = std::bit_cast<float>(raw_loopbw);
+        float loopbw = std::bit_cast<float>(raw_loopbw) / 2.5f;
         dsp_n_mskdemod->setLoopBw((params::readParam("dm_rnsr", 2000) / speed) * loopbw);
         unlock_dsp_mtx();
     }
 }
 
 void dsp_mgr::n_msk_tx_start() {
+    if (curr_mode == DSPMGR_MODE_MSK_RX) {
+        n_msk_rx_stop(false);
+        rx_paused = true;
+    }
     if (curr_mode == DSPMGR_MODE_IDLE) {
         lock_dsp_mtx();
         //Configure blocks, calculate taps
-        set_fr(mainsi5351->get_curr_center_freq() + dsp_n_mskmod->getDataRate() + 100.0f); //required because analog receiver circuit works awfully on F<~100 Hz
         //Make the chain
         dsp_maincombsink->setInputBlk(dsp_n_mskmod, dsp_n_mskmod->requestData);
         curr_mode = DSPMGR_MODE_MSK_TX;
-        general_tx_start();
-        unlock_dsp_mtx();
-    } else if(curr_mode == DSPMGR_MODE_MSK_RX) {
-        n_msk_rx_stop(false);
-        lock_dsp_mtx();
-        //Configure blocks, calculate taps
-        set_fr(mainsi5351->get_curr_center_freq() + dsp_n_mskmod->getDataRate() + 100.0f); //required because analog receiver circuit works awfully on F<~100 Hz
-        //Make the chain
-        dsp_maincombsink->setInputBlk(dsp_n_mskmod, dsp_n_mskmod->requestData);
-        curr_mode = DSPMGR_MODE_MSK_TX;
-        rx_paused = true;
         general_tx_start();
         unlock_dsp_mtx();
     }
@@ -869,15 +855,14 @@ void dsp_mgr::n_msk_tx_stop(bool from_dspc) {
         }
         curr_mode = DSPMGR_MODE_IDLE;
         general_tx_stop();
-        set_fr(mainsi5351->get_curr_center_freq() - dsp_n_mskmod->getDataRate() - 100.0f); //Return frequency back
-        if(rx_paused) {
-            n_msk_rx_start();
-            rx_paused = false;
-        }
         if (!from_dspc) {
             notifyDspTask();
             unlock_dsp_mtx();
         }
+    }
+    if(rx_paused) {
+        n_msk_rx_start();
+        rx_paused = false;
     }
 }
 
@@ -886,6 +871,7 @@ void dsp_mgr::n_msk_rx_start() {
         if(!rx_paused)
             lock_dsp_mtx();
         //Configure blocks, calculate taps
+        set_fr(mainsi5351->get_curr_center_freq() - (dsp_n_mskmod->getDataRate() + 100.0f)); //required because analog receiver circuit works awfully on F<~100 Hz
         dsp_mainadcsrc->setAdcChannels(MAINI2S_I_HIGH_CH, MAINI2S_Q_HIGH_CH);
         dsp_rxindecim->setDecimation(roundf(params::readParam("dm_risr", 100000) / params::readParam("dm_rnsr", 2000)));
         cdsp_calc_taps_lpf_float(dsp_rxinfir_taps, params::readParam("dm_rift", 33), params::readParam("dm_risr", 100000), params::readParam("dm_rnsr", 2000) / 2.0f, true);
@@ -909,6 +895,7 @@ void dsp_mgr::n_msk_rx_stop(bool from_dspc) {
         if (!from_dspc) {
             lock_dsp_mtx();
         }
+        set_fr(mainsi5351->get_curr_center_freq() + (dsp_n_mskmod->getDataRate() + 100.0f)); //Return frequency back
         curr_mode = DSPMGR_MODE_IDLE;
         dsp_n_mskdemod->stop(true);
         general_rx_stop();

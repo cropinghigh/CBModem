@@ -12,6 +12,9 @@
 
 #define MOD_PREAMBLE_SIZE 32
 
+#define DEMOD_FR_AFC_SENS 0.01f
+#define DEMOD_FR_AFC_BOUNDS 0.05f
+
 class cdsp_mod_bfsk : public cdsp_block<uint8_t, cdsp_complex_t> {
 public:
     cdsp_mod_bfsk(float fs, float fr0, float fr1, float datarate, int taps_cnt);
@@ -112,6 +115,7 @@ private:
     float _fs = 0;
     float _incr;
     float _fr0, _fr1;
+    float _frshift = 0;
     float _out_samples[CDSP_DEF_BUFF_SIZE];
     cdsp_complex_t _in_samples[CDSP_DEF_BUFF_SIZE];
     cdsp_complex_t _prev_spl;
@@ -145,6 +149,7 @@ private:
     cdsp_fir<float, float>* _filt = NULL;
     float _datarate = 0;
     float _fs = 0;
+    float _frshift = 0;
     float _incr;
     int _frcnt = 0;
     int _frbits;
@@ -182,6 +187,7 @@ private:
     int _taps_cnt;
     float* _filt_taps = NULL;
     cdsp_fir<float, float>* _filt = NULL;
+    cdsp_dcblock<float>* _dcblock;
     cdsp_maximum_likelihood_tr<float>* _sync = NULL;
     float _datarate = 0;
     float _fs = 0;

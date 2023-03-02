@@ -25,7 +25,7 @@ int cdsp_gen_sine_complex::requestData(void* ctx, cdsp_complex_t* data, int samp
     if(!_this->_running) {return -2;}
     for(int i = 0; i < samples_cnt; i++) {
         data[i].i = cosf(_this->_phase); //Should be quite slow, but performance is enough; replace with LUT later if required
-        data[i].q = -sinf(_this->_phase);
+        data[i].q = sinf(_this->_phase);
         _this->_phase += _this->_incr;
         while(_this->_phase > FL_PI) {
             _this->_phase -= 2.0f*FL_PI;

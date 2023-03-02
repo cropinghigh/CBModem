@@ -12,6 +12,8 @@
 #include <freertos/stream_buffer.h>
 #include <freertos/semphr.h>
 
+#include <rom/ets_sys.h>
+
 #include "chl_gpio.h"
 
 #define DMA_UART_RX_BUFF_SIZE 1024

@@ -93,16 +93,16 @@ int cdsp_maximum_likelihood_tr<SPLS_T>::requestData(void* ctx, SPLS_T* data, int
             float dbgshift = ((_this->_decim_shift_int+_this->_decim_shift_frac)*1.0f)/((float)_this->_decim);
             if constexpr (std::is_same<SPLS_T, cdsp_complex_t>::value) {
                 if(s == 0) {
-                    // printf("%d %f - - - %f\n", spl_id, _this->_in_buf[_this->_buff_ptr].i, _this->_in_buf[_this->_buff_ptr].q);
+//                     printf("%d %f - - - %f\n", spl_id, _this->_in_buf[_this->_buff_ptr].i, _this->_in_buf[_this->_buff_ptr].q);
                 } else {
-                    // printf("%d %f %f %f %f %f\n", spl_id, _this->_in_buf[_this->_buff_ptr].i, s, dbgshift, dbgerr, _this->_in_buf[_this->_buff_ptr].q);
+//                     printf("%d %f %f %f %f %f\n", spl_id, _this->_in_buf[_this->_buff_ptr].i, s, dbgshift, dbgerr, _this->_in_buf[_this->_buff_ptr].q);
                     s = 0;
                 }
             } else {
                 if(s == 0) {
-                    // printf("%d %f - - -\n", spl_id, _this->_in_buf[_this->_buff_ptr]);
+//                     printf("%d %f - - -\n", spl_id, _this->_in_buf[_this->_buff_ptr]);
                 } else {
-                    // printf("%d %f %f %f %f\n", spl_id, _this->_in_buf[_this->_buff_ptr], s, dbgshift, dbgerr);
+//                     printf("%d %f %f %f %f\n", spl_id, _this->_in_buf[_this->_buff_ptr], s, dbgshift, dbgerr);
                     s = 0;
                 }
             }

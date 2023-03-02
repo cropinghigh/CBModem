@@ -139,8 +139,15 @@ void chl_uart_dma::_uhci_intr_hdlr(void* arg) {
         }
         REG_WRITE(UHCI_INT_CLR_REG(_this->_number), curr_intr);
         if((curr_intr & UHCI_IN_DONE_INT_RAW) || (curr_intr & UHCI_IN_SUC_EOF_INT_RAW)) {
+            uint32_t dbgreg = REG_READ(UHCI_DMA_IN_STATUS_REG(0));
             //no flow control; all unwritten data due to full buffer will be lost
-            xStreamBufferSendFromISR(_this->_xRxStreamBuffer, (const void*)_this->_curr_inlink->buf, _this->_curr_inlink->length, &contsw_req);
+            if(_this->_curr_inlink->length >= DMA_UART_RX_BUFF_SIZE) {
+                _this->_curr_inlink->length = DMA_UART_RX_BUFF_SIZE-1;
+                ets_printf("UART RBO!\n");
+            }
+            if(_this->_curr_inlink->length != 0) {
+                xStreamBufferSendFromISR(_this->_xRxStreamBuffer, (const void*)_this->_curr_inlink->buf, _this->_curr_inlink->length, &contsw_req);
+            }
             _this->_curr_inlink->eof = 0;
             _this->_curr_inlink->owner = 1;
             _this->_curr_inlink = (lldesc_t*)_this->_curr_inlink->empty;

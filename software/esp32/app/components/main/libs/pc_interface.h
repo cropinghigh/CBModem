@@ -2,7 +2,7 @@
 #define H_PC_INTERFACE
 #include <stdint.h>
 
-#define UART_BAUDRATE 921600
+#define UART_BAUDRATE 1000000
 
 class pc_packet_interface {
     public:
@@ -15,7 +15,7 @@ class pc_packet_interface {
             PC_PI_PTD_ACK, //Acknowledge, data: 1 byte = 1 or 0, depending on last packet execution result
             PC_PI_PTD_SDR_RX_DATA, //Received data in SDR mode, data: N complex vals(2 int16 - i & q)
             PC_PI_PTD_N_TRANSMIT_COMPL, //Data transmitting in normal mode completed, no data
-            PC_PI_PTD_N_RX_DATA, //Data receiving in normal mode completed, data: N received bytes
+            PC_PI_PTD_N_RX_DATA, //Data receiving in normal mode completed, data: 1 byte - info(6 low bits-signal quality, 2 high bits-status(0-SW read, 1-type+len read, 2-data read, 3-ack read)) + N received bytes
             PC_PI_PTD_PARAM_DATA, //Requested parameter value, data: N bytes - data
         };
         enum packetType_frompc {
