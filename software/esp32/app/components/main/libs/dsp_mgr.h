@@ -49,6 +49,8 @@
 // #define N_RX_SPLS 4
 // #define N_BFSK_TAPS 33
 // #define N_MFSK_TAPS 33
+#define MAX_AFC_SHIFT 200
+#define AFC_RATE 0.5f
 /*
  Params:
  dm_rift - Receiving input FIR taps, def=33
@@ -91,7 +93,8 @@ namespace dsp_mgr {
     void general_tx_start();
     void general_tx_stop();
 
-    void set_fr(float newfr);
+    void set_fr(float newfr, bool reset_afc);
+    void apply_afc();
     void rx_set_ins(bool ins);
     void sdr_rx_start();
     void sdr_rx_stop(bool from_dspc);
@@ -140,6 +143,9 @@ namespace dsp_mgr {
     cdsp_demod_msk *dsp_n_mskdemod;
 
     SemaphoreHandle_t dsp_mtx; //Required to avoid locking DSP core task when stopping rx/tx
+    float afc_shift = 0.0f;
+    int afc_ctr = 0;
+    bool afc_search_mode = true;
     float sdr_rx_sr = 1000;
     void (*sdr_rx_cb)(void*, cdsp_complex_t*, int) = NULL;
     void *sdr_rx_cb_ctx;
@@ -321,6 +327,13 @@ void dsp_mgr::dspcore_main(void *arg) {
                     case DSPMGR_MODE_BFSK_RX: {
                         int r = dsp_n_bfskdemod->requestData(dsp_n_bfskdemod, n_rx_data, rx_spls);
                         if (r > 0) {
+                            if(afc_search_mode) {
+                                afc_ctr++;
+                                if(afc_ctr >= 32/rx_spls) {
+                                    afc_ctr = 0;
+                                    apply_afc();
+                                }
+                            }
                             if (n_rx_cb != NULL) {
                                 n_rx_cb(n_rx_cb_ctx, n_rx_data, r);
                             }
@@ -352,6 +365,13 @@ void dsp_mgr::dspcore_main(void *arg) {
                     case DSPMGR_MODE_MFSK_RX: {
                         int r = dsp_n_mfskdemod->requestData(dsp_n_mfskdemod, n_rx_data, rx_spls);
                         if (r > 0) {
+                            if(afc_search_mode) {
+                                afc_ctr++;
+                                if(afc_ctr >= 32/rx_spls) {
+                                    afc_ctr = 0;
+                                    apply_afc();
+                                }
+                            }
                             if (n_rx_cb != NULL) {
                                 n_rx_cb(n_rx_cb_ctx, n_rx_data, r);
                             }
@@ -383,6 +403,13 @@ void dsp_mgr::dspcore_main(void *arg) {
                     case DSPMGR_MODE_MSK_RX: {
                         int r = dsp_n_mskdemod->requestData(dsp_n_mskdemod, n_rx_data, rx_spls);
                         if (r > 0) {
+                            if(afc_search_mode) {
+                                afc_ctr++;
+                                if(afc_ctr >= 32/rx_spls) {
+                                    afc_ctr = 0;
+                                    apply_afc();
+                                }
+                            }
                             if (n_rx_cb != NULL) {
                                 n_rx_cb(n_rx_cb_ctx, n_rx_data, r);
                             }
@@ -441,6 +468,9 @@ void dsp_mgr::reset() {
     pin_mgr::set_rxled_enable(false);
     mainsi5351->set_output_enabled(false, false);
     rx_paused = false;
+    afc_shift = 0;
+    afc_ctr = 0;
+    afc_search_mode = true;
     unlock_dsp_mtx();
 }
 
@@ -458,8 +488,35 @@ void dsp_mgr::unlock_dsp_mtx() {
     xSemaphoreGive(dsp_mtx);
 }
 
-void dsp_mgr::set_fr(float newfr) {
+void dsp_mgr::set_fr(float newfr, bool reset_afc) {
+    if(reset_afc) {
+        afc_shift = 0;
+    }
     mainsi5351->set_frequency(false, roundf(newfr));
+    mainsi5351->set_pll_frequency_shift(false, afc_shift * params::readParam("dm_rnsr", 2000));
+}
+
+void dsp_mgr::apply_afc() {
+    float relfrshift = 0;
+    if(curr_mode == DSPMGR_MODE_BFSK_RX) {
+        relfrshift = -dsp_n_bfskdemod->_avgerr;
+    } else if(curr_mode == DSPMGR_MODE_MFSK_RX) {
+//        printf("FRE %f\n", dsp_n_mfskdemod->_avgerr);
+        relfrshift = -dsp_n_mfskdemod->_avgerr;
+    } else if(curr_mode == DSPMGR_MODE_MSK_RX) {
+//        printf("FRE %f\n", dsp_n_mskdemod->_avgerr);
+//        relfrshift = -dsp_n_mskdemod->_avgerr; //AFC is broken for MSK
+    }
+    if(relfrshift != 0) {
+        afc_shift += relfrshift * AFC_RATE;
+        int fr_shift_hz = afc_shift * params::readParam("dm_rnsr", 2000);
+        if(fabsf(fr_shift_hz) >= fabsf(MAX_AFC_SHIFT)) {
+            printf("FR SHIFT TOO LARGE: %d, RESETTING\n", fr_shift_hz);
+            afc_shift = 0;
+            fr_shift_hz = 0;
+        }
+        mainsi5351->set_pll_frequency_shift(false, afc_shift * params::readParam("dm_rnsr", 2000));
+    }
 }
 
 void dsp_mgr::rx_set_ins(bool ins) {
@@ -500,7 +557,7 @@ void dsp_mgr::general_tx_stop() {
     // maini2c->force_gpio(false);
     maini2c->set_speed(params::readParam("dm_i2cl", 400));
     mainsi5351->set_output_enabled(false, false);
-    set_fr(mainsi5351->get_curr_center_freq());
+    set_fr(mainsi5351->get_curr_center_freq(), false);
     pin_mgr::set_txled_enable(false);
 }
 
@@ -871,7 +928,7 @@ void dsp_mgr::n_msk_rx_start() {
         if(!rx_paused)
             lock_dsp_mtx();
         //Configure blocks, calculate taps
-        set_fr(mainsi5351->get_curr_center_freq() - (dsp_n_mskmod->getDataRate() + 100.0f)); //required because analog receiver circuit works awfully on F<~100 Hz
+        set_fr(mainsi5351->get_curr_center_freq() - (dsp_n_mskmod->getDataRate() + 100.0f), false); //required because analog receiver circuit works awfully on F<~100 Hz
         dsp_mainadcsrc->setAdcChannels(MAINI2S_I_HIGH_CH, MAINI2S_Q_HIGH_CH);
         dsp_rxindecim->setDecimation(roundf(params::readParam("dm_risr", 100000) / params::readParam("dm_rnsr", 2000)));
         cdsp_calc_taps_lpf_float(dsp_rxinfir_taps, params::readParam("dm_rift", 33), params::readParam("dm_risr", 100000), params::readParam("dm_rnsr", 2000) / 2.0f, true);
@@ -895,7 +952,7 @@ void dsp_mgr::n_msk_rx_stop(bool from_dspc) {
         if (!from_dspc) {
             lock_dsp_mtx();
         }
-        set_fr(mainsi5351->get_curr_center_freq() + (dsp_n_mskmod->getDataRate() + 100.0f)); //Return frequency back
+        set_fr(mainsi5351->get_curr_center_freq() + (dsp_n_mskmod->getDataRate() + 100.0f), false); //Return frequency back
         curr_mode = DSPMGR_MODE_IDLE;
         dsp_n_mskdemod->stop(true);
         general_rx_stop();

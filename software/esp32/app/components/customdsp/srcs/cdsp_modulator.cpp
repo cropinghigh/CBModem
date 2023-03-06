@@ -291,8 +291,8 @@ void cdsp_demod_bfsk::setFs(float fs) {
     _fs = fs;
     if(_datarate != 0) {
         _incr = _fs / (_datarate);
-        _taps_cnt = roundf(_incr)*2;
-        _infilt_taps_cnt = _taps_cnt*2-1;
+        _taps_cnt = (int(roundf(_incr)) % 2) ? roundf(_incr)+1 : roundf(_incr);
+        _infilt_taps_cnt = _taps_cnt;
         if(_filt_taps != NULL) {
             delete[] _filt_taps;
         }
@@ -301,26 +301,8 @@ void cdsp_demod_bfsk::setFs(float fs) {
         }
         _filt_taps = new float[_taps_cnt];
         _infilt_taps = new float[_infilt_taps_cnt];
-        cdsp_calc_taps_lpf_float(_filt_taps, _taps_cnt, _fs, _datarate, true);
-        int nresp = 65;
-        cdsp_complex_t* resp = new cdsp_complex_t[nresp];
-        for(int i = 0; i < nresp; i++) {
-            float fr = (i - (nresp)/2.0f) / (float)nresp;
-            float fr_hz = fr*_fs;
-            float mag = 0.0000f;
-            if(fabsf(fr_hz) >= fabsf(_fr0*_fs-_datarate) && fabsf(fr_hz) <= fabsf(_fr0*_fs+_datarate)) {
-                mag = 1.0f;
-            } else if(fabsf(fr_hz) >= fabsf(_fr1*_fs-_datarate) && fabsf(fr_hz) <= fabsf(_fr1*_fs+_datarate)) {
-                mag = 1.0f;
-            }
-            resp[i].i = mag;
-            resp[i].q = 0.0f;
-        }
-        cdsp_complex_t* taps = new cdsp_complex_t[_infilt_taps_cnt];
-        cdsp_calc_taps_complex_fromresp(resp, taps, nresp, _infilt_taps_cnt, true);
-        for(int i = 0; i < _infilt_taps_cnt; i++) {
-            _infilt_taps[i] = taps[i].i;
-        }
+        cdsp_calc_taps_lpf_float(_filt_taps, _taps_cnt, _fs, _datarate*1.0f, true);
+        cdsp_calc_taps_lpf_float(_infilt_taps, _infilt_taps_cnt, _fs, (fabsf(_fr0) >= fabsf(_fr1) ? 2*fabsf(_fr0*_fs) : 2*fabsf(_fr1*_fs)) + _datarate, true);
         if(_filt != NULL) {
             _filt->setTaps(_taps_cnt, _filt_taps);
         }
@@ -330,8 +312,6 @@ void cdsp_demod_bfsk::setFs(float fs) {
         if(_sync != NULL) {
             _sync->setInSps(_incr);
         }
-        delete[] resp;
-        delete[] taps;
     }
 }
 
@@ -357,6 +337,8 @@ void cdsp_demod_bfsk::setLoopBw(float bw) {
 	_sync->setLoopBw(bw);
 }
 
+//int x = 0;
+
 int cdsp_demod_bfsk::requestData(void* ctx, uint8_t* data, int samples_cnt) {
     cdsp_demod_bfsk* _this = (cdsp_demod_bfsk*) ctx;
     if(!_this->_running || _this->_incr <= 0) { return -2;}
@@ -364,54 +346,33 @@ int cdsp_demod_bfsk::requestData(void* ctx, uint8_t* data, int samples_cnt) {
     int got = _this->_sync->requestData(_this->_sync, _this->_out_samples, req_samples);
     if(got <= 0) { return got; }
     for(int i = 0; i < got; i++) {
-        float err0 = _this->_fr0 - _this->_out_samples[i]*_this->_syncdiv;
-        float err1 = _this->_fr1 - _this->_out_samples[i]*_this->_syncdiv;
+        float curr_fr = _this->_out_samples[i]*_this->_syncdiv;
+        float err0 = _this->_fr0 - curr_fr;
+        float err1 = _this->_fr1 - curr_fr;
         float nearerr = fabsf(err1) < fabsf(err0) ? err1 : err0;
-        _this->_frshift += nearerr * 0.1f;
-        if(_this->_frshift >= 0.5f) {
-            _this->_frshift = 0.5f;
-        } else if(_this->_frshift <= -0.5f) {
-            _this->_frshift = -0.5f;
-        }
         data[i] = fabsf(err1) < fabsf(err0) ? 1 : 0; //Binary slicer
-//        printf("%f %f\n", nearerr, _this->_frshift);
+        _this->_avgerr += (nearerr - _this->_avgerr) * 0.05f;
+//        x += _this->_incr;
     }
     return got;
 }
-
-// int x = 0;
 
 int cdsp_demod_bfsk::dcb_requestData(void* ctx, float* data, int samples_cnt) {
     cdsp_demod_bfsk* _this = (cdsp_demod_bfsk*) ctx;
     if(!_this->_running || _this->_input_func==NULL || _this->_incr <= 0) {return -2;}
     int req_samples = std::min(samples_cnt, CDSP_DEF_BUFF_SIZE);
-    // int got = _this->_input_func(_this->_func_call_ctx, _this->_in_samples, req_samples);
+//     int got = _this->_input_func(_this->_func_call_ctx, _this->_in_samples, req_samples);
     int got = _this->_infilt->requestData(_this->_infilt, _this->_in_samples, req_samples);
     if(got <= 0) {return got;}
     for(int i = 0; i < got; i++) {
         // printf("%d %f %f\n", x, _this->_in_samples[i].i, _this->_in_samples[i].q);
         // x++;
         float fr_rel = (_this->_in_samples[i]*_this->_prev_spl.conj()).ph() * (1.0f/(2.0f*FL_PI)); //Interesting f/fs detector, stolen from gnuradio quadrature demod; works SIGNIFICANTLY better than coherent multiplication&filtering
-        fr_rel += _this->_frshift; //Apply AFC
+        _this->_prev_spl = _this->_in_samples[i];
         float err0 = _this->_fr0 - fr_rel;
         float err1 = _this->_fr1 - fr_rel;
         float nearerr = fabsf(err1) < fabsf(err0) ? 0 : err0;
-        _this->_frshift += nearerr * DEMOD_FR_AFC_SENS;
-        if(_this->_frshift >= DEMOD_FR_AFC_BOUNDS) {
-            _this->_frshift = DEMOD_FR_AFC_BOUNDS;
-        } else if(_this->_frshift <= -DEMOD_FR_AFC_BOUNDS) {
-            _this->_frshift = -DEMOD_FR_AFC_BOUNDS;
-        }
         data[i] = fr_rel * _this->_syncmul;
-//         _this->_filt_buff[_this->_filt_ptr] = fr_rel;
-//         _this->_filt_ptr = (_this->_filt_ptr + 1) % _this->_taps_cnt;
-//         data[i] = 0;
-//         for(int k = 0; k < _this->_taps_cnt; k++) {
-//            
-//             data[i] += _this->_filt_buff[k] * _this->_filt_taps[k];
-//         }
-//         data[i] *= _this->_syncmul;
-        _this->_prev_spl = _this->_in_samples[i];
     }
     return got;
 }
@@ -423,7 +384,7 @@ int cdsp_demod_bfsk::infilt_requestData(void* ctx, cdsp_complex_t* data, int sam
 }
 
 void cdsp_demod_bfsk::_do_start() {
-    _frshift = 0;
+    _avgerr = 0;
     _infilt->start(true);
     _sync->start(true);
 }
@@ -462,8 +423,8 @@ void cdsp_demod_mfsk::setFs(float fs) {
     _fs = fs;
     if(_datarate != 0) {
         _incr = _fs / (_datarate);
-        _taps_cnt = roundf(_incr);
-        _infilt_taps_cnt = _taps_cnt-1;
+        _taps_cnt = (int(roundf(_incr)) % 2) ? roundf(_incr)+1 : roundf(_incr);
+        _infilt_taps_cnt = _taps_cnt;
         if(_filt_taps != NULL) {
             delete[] _filt_taps;
         }
@@ -473,28 +434,13 @@ void cdsp_demod_mfsk::setFs(float fs) {
         _filt_taps = new float[_taps_cnt];
         _infilt_taps = new float[_infilt_taps_cnt];
         cdsp_calc_taps_lpf_float(_filt_taps, _taps_cnt, _fs, _datarate, true);
-        int nresp = 33;
-        cdsp_complex_t* resp = new cdsp_complex_t[nresp];
-        for(int i = 0; i < nresp; i++) {
-            float fr = (i - (nresp)/2.0f) / (float)nresp;
-            float fr_hz = fr*_fs;
-            float mag = 0.0000f;
-            // if(fabsf(fr) <= 100.0f/fs) {
-                // mag = 1.0f;
-            // }
-            for(int k = 0; k < _frcnt; k++) {
-                if(fabsf(fr_hz) >= fabsf(_frs[k]*_fs-_datarate/2) && fabsf(fr_hz) <= fabsf(_frs[k]*_fs+_datarate/2)) {
-                    mag = 1.0f;
-                }
+        float maxfr = fabsf(_frs[0]);
+        for(int i = 0; i < _frcnt; i++) {
+            if(fabsf(_frs[i]) > maxfr) {
+                maxfr = fabsf(_frs[i]);
             }
-            resp[i].i = mag;
-            resp[i].q = 0.0f;
         }
-        cdsp_complex_t* taps = new cdsp_complex_t[_infilt_taps_cnt];
-        cdsp_calc_taps_complex_fromresp(resp, taps, nresp, _infilt_taps_cnt, true);
-        for(int i = 0; i < _infilt_taps_cnt; i++) {
-            _infilt_taps[i] = taps[i].i;
-        }
+        cdsp_calc_taps_lpf_float(_infilt_taps, _infilt_taps_cnt, _fs, 2*maxfr*_fs + _datarate, true);
         if(_filt != NULL) {
             _filt->setTaps(_taps_cnt, _filt_taps);
         }
@@ -504,8 +450,6 @@ void cdsp_demod_mfsk::setFs(float fs) {
         if(_sync != NULL) {
             _sync->setInSps(_incr);
         }
-        delete[] resp;
-        delete[] taps;
     }
 }
 
@@ -575,6 +519,7 @@ int cdsp_demod_mfsk::requestData(void* ctx, uint8_t* data, int samples_cnt) {
                         minerrval = err;
                     }
                 }
+                _this->_avgerr += (minerrval - _this->_avgerr) * 0.05f;
 //                printf("%d - - - - - - %f\n", x, _this->_frs[_this->_outbuff[i]]/_this->_syncdiv);
 //                y++;
             }
@@ -598,33 +543,9 @@ int cdsp_demod_mfsk::dcb_requestData(void* ctx, float* data, int samples_cnt) {
     if(got <= 0) {return got;}
     for(int i = 0; i < got; i++) {
         float fr_rel = (_this->_in_samples[i]*_this->_prev_spl.conj()).ph() * (1.0f/(2.0f*FL_PI)); //Interesting f/fs detector, stolen from gnuradio quadrature demod; works SIGNIFICANTLY better than coherent multiplication&filtering
-        fr_rel += _this->_frshift; //Apply AFC
-        float minerrval = 100000.0f;
-        int idx = 0;
-        for(int k = 0; k < _this->_frcnt; k++) {
-            float frtarget = _this->_frs[k];
-            float err = frtarget - fr_rel;
-            if(fabsf(err) < fabsf(minerrval)) {
-                minerrval = err;
-                idx = k;
-            }
-        }
-        _this->_frshift += ((idx == 0 || idx == _this->_frcnt-1) ? minerrval : 0) * DEMOD_FR_AFC_SENS; //use only frequency0&last for AFC
-        if(_this->_frshift >= DEMOD_FR_AFC_BOUNDS) {
-            _this->_frshift = DEMOD_FR_AFC_BOUNDS;
-        } else if(_this->_frshift <= -DEMOD_FR_AFC_BOUNDS) {
-            _this->_frshift = -DEMOD_FR_AFC_BOUNDS;
-        }
-//        tmp[tmpidx] = minerrval;
-//        tmpidx = (tmpidx+1) % 10;
-//        float n = 0;
-//        for(int k = 0; k < 10; k++) {
-//            n += tmp[k] * 1/10.0f;
-//        }
-//        printf("%d - - - - %f %f\n", x, n*10.0f, _this->_frshift*1);
-//        x++;
-        data[i] = fr_rel * _this->_syncmul;
         _this->_prev_spl = _this->_in_samples[i];
+        data[i] = fr_rel * _this->_syncmul;
+
     }
     return got;
 }
@@ -640,7 +561,7 @@ void cdsp_demod_mfsk::_do_start() {
     _outbuff_data = 0;
     _outbuff_ptr = 0;
     _outbuff_bit = 0;
-    _frshift = 0;
+    _avgerr = 0;
     _infilt->start(true);
     _sync->start(true);
 }
@@ -677,8 +598,8 @@ void cdsp_demod_msk::setFs(float fs) {
     _fs = fs;
     if(_datarate != 0) {
         _incr = _fs / (_datarate);
-        _taps_cnt = roundf(_incr);
-        _infilt_taps_cnt = _taps_cnt+1;
+        _taps_cnt = (int(roundf(_incr)) % 2) ? roundf(_incr)+1 : roundf(_incr);
+        _infilt_taps_cnt = _taps_cnt;
         // _taps_cnt = 1;
         _syncmul = 1.0f/(_datarate/(4.0f*_fs));
 //        _syncmul = 1.0f;
@@ -699,7 +620,7 @@ void cdsp_demod_msk::setFs(float fs) {
             float fr = (i - (nresp)/2.0f) / (float)nresp;
             float fr_hz = fr*_fs;
             float mag = 0.0000f;
-            if(fr_hz >= _froffs*_fs-2*_datarate && fr_hz <= _froffs*_fs+2*_datarate) {
+            if(fr_hz >= 100.0f && fr_hz <= 2*_froffs*_fs+2*_datarate) {
                 mag = 1.0f;
             }
             resp[i].i = mag;
@@ -733,10 +654,13 @@ int cdsp_demod_msk::requestData(void* ctx, uint8_t* data, int samples_cnt) {
     int got = _this->_sync->requestData(_this->_sync, _this->_out_samples, req_samples);
     if(got <= 0) { return got; }
     for(int i = 0; i < got; i++) {
-        // float err0 = fabsf(_this->_fr0 - _this->_out_samples[i]*_this->_syncdiv);
-        // float err1 = fabsf(_this->_fr1 - _this->_out_samples[i]*_this->_syncdiv);
-        // data[i] = err1 < err0 ? 1 : 0; //Binary slicer
-        data[i] = (_this->_out_samples[i] >= 0) ? 1 : 0;
+         float curr_fr = _this->_out_samples[i] * _this->_syncdiv;
+         float err0 = fabsf(-(_this->_datarate/(4.0f*_this->_fs)) - curr_fr);
+         float err1 = fabsf((_this->_datarate/(4.0f*_this->_fs)) - curr_fr);
+         float minerr = fabsf(err0) > fabsf(err1) ? err1 : err0;
+         data[i] = fabsf(err0) > fabsf(err1) ? 1 : 0;
+         _this->_avgerr += (minerr - _this->_avgerr) * 0.05f;
+//         _this->_avgerr = curr_fr;
     }
     return got;
 }
@@ -756,11 +680,11 @@ int cdsp_demod_msk::dcb_requestData(void* ctx, float* data, int samples_cnt) {
         float fr_rel = ((_this->_in_samples[i]*_this->_prev_spl.conj()).ph() * (1.0f/(2.0f*FL_PI))) - (_this->_froffs); //Interesting f/fs detector, stolen from gnuradio quadrature demod; works SIGNIFICANTLY better than coherent multiplication&filtering
         
         data[i] = fr_rel * _this->_syncmul;
-        if(data[i] >= 1.0f) {
-            data[i] = 1.0f;
-        } else if(data[i] <= -1.0f) {
-            data[i] = -1.0f;
-        }
+//        if(data[i] >= 1.0f) {
+//            data[i] = 1.0f;
+//        } else if(data[i] <= -1.0f) {
+//            data[i] = -1.0f;
+//        }
         // data[i] = fr_rel;
         // cdsp_complex_t gen;
         // gen.i = cosf(_this->_phacc);
@@ -809,6 +733,7 @@ void cdsp_demod_msk::_do_start() {
     }
     _phacc = 0;
     _int_buff_ptr = 0;
+    _avgerr = 0;
     _infilt->start(true);
     _sync->start(true);
 }

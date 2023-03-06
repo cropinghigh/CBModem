@@ -152,6 +152,8 @@ void IRAM_ATTR n_packetmgr_rx_cb(void* ctx, int type, uint8_t* data, int cnt) {
         data_p.type = pc_packet_interface::packetType_fromdev::PC_PI_PTD_N_RX_DATA;
         data_p.len = 1;
         data_p.data[0] = (errors & 0b111111) | (0b00 << 6);
+        dsp_mgr::apply_afc();
+        dsp_mgr::afc_search_mode = false;
         uart_sync_packet_send(data_p);
     } else if(type == 1) {
         uint8_t errors = data[0];
@@ -273,7 +275,7 @@ void IRAM_ATTR app_main(void) {
                 break;
             }
             case pc_packet_interface::packetType_frompc::PC_PI_PTP_SET_FR: {
-                dsp_mgr::set_fr(*((float*) p.data));
+                dsp_mgr::set_fr(*((float*) p.data), true);
                 ackp.data[0] = 1;
                 break;
             }

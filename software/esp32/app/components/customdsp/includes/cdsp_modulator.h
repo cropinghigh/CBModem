@@ -105,6 +105,8 @@ public:
     static int IRAM_ATTR dcb_requestData(void* ctx, float* data, int samples_cnt);
     static int IRAM_ATTR infilt_requestData(void* ctx, cdsp_complex_t* data, int samples_cnt);
 
+    float _avgerr = 0;
+
 private:
     int _taps_cnt;
     float* _filt_taps = NULL;
@@ -115,7 +117,6 @@ private:
     float _fs = 0;
     float _incr;
     float _fr0, _fr1;
-    float _frshift = 0;
     float _out_samples[CDSP_DEF_BUFF_SIZE];
     cdsp_complex_t _in_samples[CDSP_DEF_BUFF_SIZE];
     cdsp_complex_t _prev_spl;
@@ -141,6 +142,8 @@ public:
     static int IRAM_ATTR dcb_requestData(void* ctx, float* data, int samples_cnt);
     static int IRAM_ATTR infilt_requestData(void* ctx, cdsp_complex_t* data, int samples_cnt);
 
+    float _avgerr = 0;
+
 private:
     int _taps_cnt;
     cdsp_dcblock<float>* _dcblock;
@@ -149,7 +152,6 @@ private:
     cdsp_fir<float, float>* _filt = NULL;
     float _datarate = 0;
     float _fs = 0;
-    float _frshift = 0;
     float _incr;
     int _frcnt = 0;
     int _frbits;
@@ -163,7 +165,7 @@ private:
     cdsp_complex_t _prev_spl;
     float _syncmul;
     float _syncdiv;
-     cdsp_fir<float, cdsp_complex_t>* _infilt = NULL;
+    cdsp_fir<float, cdsp_complex_t>* _infilt = NULL;
     float* _infilt_taps = NULL;
     int _infilt_taps_cnt;
 
@@ -182,6 +184,9 @@ public:
     static int IRAM_ATTR requestData(void* ctx, uint8_t* data, int samples_cnt);
     static int IRAM_ATTR dcb_requestData(void* ctx, float* data, int samples_cnt);
     static int IRAM_ATTR infilt_requestData(void* ctx, cdsp_complex_t* data, int samples_cnt);
+
+    float _avgerr = 0;
+
 
 private:
     int _taps_cnt;

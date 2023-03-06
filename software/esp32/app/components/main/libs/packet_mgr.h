@@ -153,6 +153,8 @@ int packet_mgr::tx_reqfunc(void* ctx, uint8_t* data, int samples_cnt) {
     return samples_cnt;
 }
 
+float frerr = 0;
+
 int find_bit_diffs(uint32_t a, uint32_t b) {
     int ret = 0;
     for(int i = 0; i < 32; i++) {
@@ -254,10 +256,11 @@ void packet_mgr::load_rx_data(uint8_t* data, int cnt) {
                 for(int k = 0; k < 8; k++) {
                     rx_data_buff[k] = 0;
                 }
+//                printf("SW FOUND(%d errs)!\n", errs);
+//                printf("ERRORS %f %f\n", dsp_n_bfskdemod._avgerr0, dsp_n_bfskdemod._avgerr1);
                 if(rx_cb != NULL) {
                     rx_cb(rx_cb_ctx, 0, &errs, 1); //Report successfull SW reading
                 }
-//                printf("SW FOUND(%d errs)!\n", errs);
             }
         }
     }

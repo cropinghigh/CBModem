@@ -129,7 +129,7 @@ class ModemPacketInterface {
             tty.c_lflag &= ~ISIG; // Disable interpretation of INTR, QUIT and SUSP
             tty.c_iflag &= ~(IXON | IXOFF | IXANY); // Turn off s/w flow ctrl
             tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL); // Disable any special handling of received bytess
-            tty.c_cc[VTIME] = 1;
+            tty.c_cc[VTIME] = 3;
             tty.c_cc[VMIN] = 0;
             if (cfsetspeed(&(tty), B1000000)) {
                 printf("ModemPI: cfsetispeed() failed! Error: %s\n", strerror(errno));
@@ -990,11 +990,19 @@ void interactive_mode_read() {
                             fflush(stdout);
                             started = true;
                         }
+                        if(l == -11) {
+                            printf("| LEN %d ", data[0]);
+                            fflush(stdout);
+                        }
                         if(l == -13) {
                             printf("| ACK \n");
                             attempts = 0;
                             break;
                         }
+                    } else {
+                        printf("| NOT ACK \n");
+                        started = false;
+                        waiting = false;
                     }
                     std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
                     uint32_t required_time = (1000000UL / (interactModeSpd)) * 128;
