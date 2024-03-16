@@ -601,7 +601,7 @@ void dsp_mgr::sdr_rx_set_sr(float newsr) {
         lock_dsp_mtx();
         sdr_rx_sr = newsr;
         unlock_dsp_mtx();
-    }
+    } 
 }
 
 void dsp_mgr::sdr_rx_set_cb(void (*new_sdr_rx_cb)(void*, cdsp_complex_t*, int), void *ctx) {

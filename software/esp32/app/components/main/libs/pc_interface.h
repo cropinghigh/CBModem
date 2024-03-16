@@ -4,6 +4,7 @@
 
 #define UART_BAUDRATE 1000000
 
+//VERSION=1.1
 class pc_packet_interface {
     public:
         //Interface using binary packets, starting from startByte

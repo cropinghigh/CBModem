@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+//VERSION=1.1
 const uint8_t crc8_polynom = 0xD5;
 
 uint8_t calc_crc8(uint8_t* data, int cnt) {

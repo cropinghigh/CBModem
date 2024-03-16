@@ -120,7 +120,7 @@ void IRAM_ATTR uart_sync_packet_read(pc_packet_interface::pc_packet *p) {
 void IRAM_ATTR sdr_rx_cb(void *ctx, cdsp_complex_t *data, int cnt) {
     if (cnt > 0) {
         for (int i = 0; i < cnt; i++) {
-            (curr_sdr_rx_send_data ? sdr_rx_send_data_a : sdr_rx_send_data_b)[i * 2] = roundf(data[i].i * 0.1f * 32767.0f);
+            (curr_sdr_rx_send_data ? sdr_rx_send_data_a : sdr_rx_send_data_b)[i * 2] = roundf(data[i].i * 0.1f * 32767.0f); 
             (curr_sdr_rx_send_data ? sdr_rx_send_data_a : sdr_rx_send_data_b)[i * 2 + 1] = roundf(data[i].q * 0.1f * 32767.0f);
         }
         pc_packet_interface::pc_packet data_p;
