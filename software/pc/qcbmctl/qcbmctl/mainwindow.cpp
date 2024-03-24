@@ -233,6 +233,7 @@ void MainWindow::refreshActivity() {
 }
 
 void MainWindow::reloadParams() {
+//    std::lock_guard<std::mutex> lock(mpiMtx);
     param_init = false;
     ui->tableWidget->clear();
     ui->tableWidget->setRowCount(std::size(paramsList));
@@ -399,7 +400,9 @@ void MainWindow::gotError(QString err) {
 
 void MainWindow::on_do_insertPlainText(const QString &text) {
     bool x = (ui->textBrowser_3->verticalScrollBar()->maximum() - ui->textBrowser_3->verticalScrollBar()->value()) <= 10;
+//    ui->textBrowser_3->insertHtml("<pre>" + text + "</pre>");
     ui->textBrowser_3->insertPlainText(text);
+//    ui->textBrowser_3->append(text);
     if(x) {
         ui->textBrowser_3->verticalScrollBar()->setValue(ui->textBrowser_3->verticalScrollBar()->maximum());
     }
@@ -466,12 +469,15 @@ void MainWindow::on_tableWidget_cellChanged(int row, int column) {
         if(column == 1) {
             QTableWidgetItem* newitem = ui->tableWidget->item(row, column);
             if(newitem != nullptr) {
+                std::lock_guard<std::mutex> lock(mpiMtx);
                 ui->tableWidget->setEnabled(false);
                 QTableWidgetItem *itemB;
                 uint8_t buff[5];
                 QBrush brush;
                 QColor brushColor;
                 QString newData = newitem->data(Qt::DisplayRole).toString();
+                modemPI.stop_rx();
+                usleep(5000);
                 if(paramsList[row].format == PARAM_DEF_TYPE_INT) {
                     bool ok;
                     uint32_t newVal = newData.toInt(&ok);
@@ -524,6 +530,8 @@ void MainWindow::on_tableWidget_cellChanged(int row, int column) {
                 param_set_cnt++;
                 ui->tableWidget->setItem(row, 1, itemB);
                 ui->tableWidget->setEnabled(true);
+                usleep(5000);
+                modemPI.start_rx();
             }
         }
     }
@@ -533,8 +541,16 @@ void MainWindow::on_tableWidget_cellChanged(int row, int column) {
 void MainWindow::on_pushButton_7_clicked() {
     if(conn_alive && param_init) {
         ui->tableWidget->setEnabled(false);
-        modemPI.store_params();
-        reloadParams();
+        {
+            std::lock_guard<std::mutex> lock(mpiMtx);
+            modemPI.stop_rx();
+            usleep(5000);
+            modemPI.store_params();
+            usleep(5000);
+            reloadParams();
+            usleep(5000);
+            modemPI.start_rx();
+        }
         ui->tableWidget->setEnabled(true);
     }
 }

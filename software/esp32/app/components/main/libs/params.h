@@ -8,18 +8,20 @@
 
 namespace params {
 
-    void init();
-    void writeParam(std::string name, void* data, size_t len);
-    void writeParam(std::string name, uint32_t data);
-    void store();
+    void IRAM_ATTR init();
+    void IRAM_ATTR writeParam(std::string name, void* data, size_t len);
+    void IRAM_ATTR writeParam(std::string name, uint32_t data);
+    void IRAM_ATTR store();
     // int readParam(std::string name, void* data, void* def_val, size_t len, size_t defval_len);
-    int readParam(std::string name, uint32_t* data, uint32_t def_val);
-    uint32_t readParam(std::string name, uint32_t def_val);
+    int IRAM_ATTR readParam(std::string name, uint32_t* data, uint32_t def_val);
+    uint32_t IRAM_ATTR readParam(std::string name, uint32_t def_val);
 
     nvs_handle_t nvshdl;
+    SemaphoreHandle_t xNvsMutex = NULL;
 };
 
 void params::init() {
+    xNvsMutex = xSemaphoreCreateMutex();
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         // NVS partition was truncated and needs to be erased
@@ -36,21 +38,27 @@ void params::init() {
 }
 
 void params::writeParam(std::string name, void* data, size_t len) {
+    if(!xSemaphoreTake (xNvsMutex, portMAX_DELAY)) { return; }
     if(nvs_set_blob(nvshdl, name.c_str(), data, len) != ESP_OK) {
         printf("PARAMS WRITE FAILED!\n");
     }
+    xSemaphoreGive (xNvsMutex);
 }
 
 void params::writeParam(std::string name, uint32_t data) {
+    if(!xSemaphoreTake (xNvsMutex, portMAX_DELAY)) { return; }
     if(nvs_set_u32(nvshdl, name.c_str(), data) != ESP_OK) {
         printf("PARAMS WRITE FAILED!\n");
     }
+    xSemaphoreGive (xNvsMutex);
 }
 
 void params::store() {
+    if(!xSemaphoreTake (xNvsMutex, portMAX_DELAY)) { return; }
     if(nvs_commit(nvshdl) != ESP_OK) {
         printf("PARAMS COMMIT FAILED!\n");
     }
+    xSemaphoreGive (xNvsMutex);
 }
 
 // int params::readParam(std::string name, void* data, void* def_val, size_t len, size_t defval_len) {
@@ -82,24 +90,30 @@ void params::store() {
 
 int params::readParam(std::string name, uint32_t* data, uint32_t def_val) {
     *data = def_val;
+    if(!xSemaphoreTake (xNvsMutex, portMAX_DELAY)) { return -2; }
     int err = nvs_get_u32(nvshdl, name.c_str(), data);
     if(err != ESP_OK) {
         if(err != ESP_ERR_NVS_NOT_FOUND) {
             printf("PARAMS READ FAILED(%d)!\n", err);
+            xSemaphoreGive (xNvsMutex);
             return -2;
         } else {
+            xSemaphoreGive (xNvsMutex);
             return -1;
         }
     }
+    xSemaphoreGive (xNvsMutex);
     return 0;
 }
 
 uint32_t params::readParam(std::string name, uint32_t def_val) {
     uint32_t ret = def_val;
+    if(!xSemaphoreTake (xNvsMutex, portMAX_DELAY)) { return ret; }
     int err = nvs_get_u32(nvshdl, name.c_str(), &ret);
     if(err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
         printf("PARAMS READ FAILED(%d)!\n", err);
     }
+    xSemaphoreGive (xNvsMutex);
     return ret;
 }
 

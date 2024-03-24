@@ -135,15 +135,11 @@ namespace cbmodem {
             close(_fd);
             return false;
         }
+        _tty.c_iflag = 0;
+        _tty.c_oflag = 0;
+        _tty.c_lflag = 0;
         _tty.c_cflag &= ~CRTSCTS;   // Disable RTS/CTS control flow
         _tty.c_cflag |= CREAD | CLOCAL; // Turn on READ & ignore ctrl lines (CLOCAL = 1)
-        _tty.c_lflag &= ~ICANON;
-        _tty.c_lflag &= ~ECHO; // Disable echo
-        _tty.c_lflag &= ~ECHOE; // Disable erasure
-        _tty.c_lflag &= ~ECHONL; // Disable new-line echo
-        _tty.c_lflag &= ~ISIG; // Disable interpretation of INTR, QUIT and SUSP
-        _tty.c_iflag &= ~(IXON | IXOFF | IXANY); // Turn off s/w flow ctrl
-        _tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL); // Disable any special handling of received bytess
         _tty.c_cc[VTIME] = READ_TIMEOUT_MS/100;
         _tty.c_cc[VMIN] = 0;
         if (cfsetspeed(&(_tty), B115200)) {
@@ -626,6 +622,7 @@ namespace cbmodem {
             if (!_this->_tx_queue.waitAndPop(sendp)) {
                 goto _end;
             }
+            usleep(100000UL);
             int bufs = 5 + sendp.len;
             uint8_t packet_send_buff[bufs];
             packet_send_buff[0] = 0xaa;
@@ -647,19 +644,26 @@ namespace cbmodem {
             write(_this->_fd, &packet_send_buff[0], 1);
             fsync(_this->_fd);
             usleep(1000UL); //don't remember, why this is needed. probably can be removed. NO!!!!!!!!!
-            // fprintf(stderr, "%x, ", packet_send_buff[0]);
+            // // fprintf(stderr, "%x, ", packet_send_buff[0]);
             write(_this->_fd, &packet_send_buff[1], 1);
             fsync(_this->_fd);
             usleep(1000UL);
-            // fprintf(stderr, "%x, ", packet_send_buff[1]);
-
+            // // fprintf(stderr, "%x, ", packet_send_buff[1]);
+            // write(_this->_fd, &packet_send_buff[2], 1);
+            // fsync(_this->_fd);
+            // usleep(1000UL);
+            // 
+            // write(_this->_fd, &packet_send_buff[3], 1);
+            // fsync(_this->_fd);
+            // usleep(1000UL);
+            // 
             for(int i = 2; i < bufs; i+=16) {
                 write(_this->_fd, &packet_send_buff[i], std::min(16, bufs-i));
                 fsync(_this->_fd);
                 usleep(5000UL);
             }
             // for(int i = 2; i < bufs; i++) {
-            //     write(_this->_fd, &packet_send_buff[i], 1);
+                // write(_this->_fd, &packet_send_buff[i], 1);
             //     fsync(_this->_fd);
             //     // usleep(500UL);
             //     // fprintf(stderr, "%x, ", packet_send_buff[i]);

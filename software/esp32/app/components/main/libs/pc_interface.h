@@ -4,7 +4,7 @@
 
 #define UART_BAUDRATE 115200
 
-//VERSION=1.2
+//VERSION=1.3
 class pc_packet_interface {
     public:
         //Interface using binary packets, starting from startByte
@@ -30,7 +30,6 @@ class pc_packet_interface {
             PC_PI_PTP_TX_STOP, //Stop transmitting in current selected mode, no data
             PC_PI_PTP_TX_DATA, //Put data to tx buffer, data: in SDR mode N complex vals(2 int16 - i & q), in normal mode N bytes of packet data
             PC_PI_PTP_TX_CARRIER, //Start transmitting max amplitude carrier wave, no data
-            CURSED,
             PC_PI_PTP_PARAM_READ, //Request reading parameter, data: 1 byte-name length(1-15), N bytes - name
             PC_PI_PTP_PARAM_WRITE, //Write parameter to device, data: 1 byte-name length(1-15), N bytes - name, 1 byte-value length, K bytes - value
             PC_PI_PTP_PARAM_STORE, //Store written params to flash, no data

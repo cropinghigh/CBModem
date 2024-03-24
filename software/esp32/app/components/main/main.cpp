@@ -7,6 +7,8 @@
 
 #include "chl_uart.h"
 
+// #include "driver/uart.h"
+
 #include "cdsp_common.h"
 #include "libs/params.h"
 #include "libs/pin_mgr.h"
@@ -17,7 +19,7 @@
 
 extern "C" void app_main();
 
-chl_uart_dma *mainuart = NULL;
+chl_uart_dma *mainuart = NULL; //DMA works too unstable??
 
 DMA_ATTR uint8_t packet_send_buff[MAX_PC_P_SIZE];
 DMA_ATTR uint8_t packet_read_buff[MAX_PC_P_SIZE];
@@ -40,6 +42,7 @@ bool rightparity = false;
 
 void IRAM_ATTR uart_sync_packet_send(pc_packet_interface::pc_packet p) {
     mainuart->waitForTxFinish();
+    // ESP_ERROR_CHECK(uart_wait_tx_done(UART_NUM_0, 100)); // wait timeout is 100 RTOS ticks (TickType_t)
     int bufs = 5 + p.len;
     packet_send_buff[0] = 0x00;
     packet_send_buff[1] = pc_packet_interface::startByte;
@@ -52,6 +55,7 @@ void IRAM_ATTR uart_sync_packet_send(pc_packet_interface::pc_packet p) {
     }
     packet_send_buff[4 + p.len] = calc_crc8(&packet_send_buff[1], p.len+3);
     mainuart->transmit_bytes(packet_send_buff, bufs, true);
+    // uart_write_bytes(UART_NUM_0, packet_send_buff, bufs);
 }
 
 //blocks until packet is received; No thread safety!!!
@@ -65,18 +69,21 @@ void IRAM_ATTR uart_sync_packet_read(pc_packet_interface::pc_packet *p) {
         while (packet_read_buff_data > 0) {
 //            if(packet_read_buff[packet_read_buff_pos] != pc_packet_interface::startByte) {
             // printf("[%x]", packet_read_buff[packet_read_buff_pos]);
-//                fflush(stdout);
+               // fflush(stdout);
 //            }
             if (state == 0) {
                 if (packet_read_buff[packet_read_buff_pos] == pc_packet_interface::startByte) {
+                    // printf("SB");
 //                    printf("[");
                     state = 1;
                 }
             } else if (state == 1) {
+                // printf("T");
                 p->type = packet_read_buff[packet_read_buff_pos];
                 checksum_buff[1] = p->type;
                 state = 2;
             } else if (state == 2) {
+                // printf("L");
                 p->len = packet_read_buff[packet_read_buff_pos];
                 checksum_buff[2] = p->len;
                 if (p->len == 0) {
@@ -85,6 +92,7 @@ void IRAM_ATTR uart_sync_packet_read(pc_packet_interface::pc_packet *p) {
                     state = 3;
                 }
             } else if (state == 3) {
+                // printf("D");
                 p->data[outdata_pos] = packet_read_buff[packet_read_buff_pos];
                 checksum_buff[3+outdata_pos] = p->data[outdata_pos];
                 outdata_pos++;
@@ -92,6 +100,7 @@ void IRAM_ATTR uart_sync_packet_read(pc_packet_interface::pc_packet *p) {
                     state = 4;
                 }
             } else if (state == 4) {
+                // printf("C");
                 p->checksum = packet_read_buff[packet_read_buff_pos];
                 uint8_t calc_checksum = calc_crc8(checksum_buff, 3+outdata_pos);
                 packet_read_buff_pos++;
@@ -112,6 +121,12 @@ void IRAM_ATTR uart_sync_packet_read(pc_packet_interface::pc_packet *p) {
         if (r < 1) {
             return; //error
         }
+        // int r = 0;
+        // vTaskDelay(1);
+        // ESP_ERROR_CHECK(uart_get_buffered_data_len(UART_NUM_0, (size_t*)&r));
+        // if(r > 0) {
+        //     r = uart_read_bytes(UART_NUM_0, packet_read_buff, std::min(r, 4), 100);
+        // }
         packet_read_buff_data = r;
         packet_read_buff_pos = 0;
     }
@@ -230,6 +245,7 @@ void IRAM_ATTR acksend_main(void *arg) {
 
 void IRAM_ATTR app_main(void) {
     mainuart = new chl_uart_dma(0, UART_BAUDRATE, MAINUART_RXD_GPIO, MAINUART_TXD_GPIO);
+
     printf("Main core: %d\n", xPortGetCoreID());
     params::init();
     pin_mgr::init();
@@ -242,6 +258,19 @@ void IRAM_ATTR app_main(void) {
     dsp_mgr::n_tx_set_reqfunc(packet_mgr::tx_reqfunc, NULL);
     xTaskCreatePinnedToCore(acksend_main, "ACKSENDTSK", 3584, NULL, ESP_TASK_TIMER_PRIO, &acksend_task_hdl, 0); //Create main task on DSP core(1)
     printf("Starting packet interface...\n");
+/*
+    // Configure UART parameters
+    vTaskDelay(20 / portTICK_PERIOD_MS);
+    uart_config_t uart_config = {
+        .baud_rate = UART_BAUDRATE,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .rx_flow_ctrl_thresh = 0,
+    };
+    ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0));
+    ESP_ERROR_CHECK(uart_param_config(UART_NUM_0, &uart_config));*/
 
     pc_packet_interface::pc_packet startp;
     startp.type = pc_packet_interface::packetType_fromdev::PC_PI_PTD_START;

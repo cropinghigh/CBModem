@@ -94,7 +94,7 @@ namespace dsp_mgr {
     void general_tx_stop();
 
     void set_fr(float newfr, bool reset_afc);
-    void apply_afc();
+    void IRAM_ATTR apply_afc();
     void rx_set_ins(bool ins);
     void sdr_rx_start();
     void sdr_rx_stop(bool from_dspc);
@@ -180,6 +180,11 @@ namespace dsp_mgr {
 
     mode curr_mode = DSPMGR_MODE_IDLE;
     bool rx_paused = false;
+
+    int cache_risr;
+    int cache_rnsr;
+    int cache_tisr;
+    int cache_tdsr;
 }
 ;
 
@@ -194,15 +199,21 @@ void dsp_mgr::init() {
         return;
     }
 
+    cache_risr = params::readParam("dm_risr", 100000);
+    cache_rnsr = params::readParam("dm_rnsr", 2000);
+    cache_tisr = params::readParam("dm_tisr", 10000);
+    cache_tdsr = params::readParam("dm_tdsr", 100000);
+
     xTaskCreatePinnedToCore(dspcore_main, "DSPMAINTSK", 3584, NULL, ESP_TASK_TIMER_PRIO, &dspcore_task_hdl, 1); //Create main task on DSP core(1)
     while (maini2c == NULL || maini2s == NULL || dsp_mainadcsrc == NULL || dsp_maincombsink == NULL) {
         vTaskDelay(1 / portTICK_PERIOD_MS);
     } //wait for the second core to init interrupts
     printf("Main: I2s&I2c inited!\n");
 
+
     dsp_rxinfir_taps = new float[params::readParam("dm_rift", 33)];
     dsp_rxinfir = new cdsp_fir<float, cdsp_complex_t>(params::readParam("dm_rift", 33), dsp_rxinfir_taps);
-    dsp_rxindecim = new cdsp_rational_decimator<cdsp_complex_t>(params::readParam("dm_risr", 100000) / sdr_rx_sr);
+    dsp_rxindecim = new cdsp_rational_decimator<cdsp_complex_t>(cache_risr / sdr_rx_sr);
     uint32_t dcbr_def = std::bit_cast < uint32_t > (0.9f);
     uint32_t agcr_def = std::bit_cast < uint32_t > (0.9f);
     uint32_t raw_dcbr = params::readParam("dm_rdcb", dcbr_def);
@@ -211,13 +222,13 @@ void dsp_mgr::init() {
     float agc_rate = std::bit_cast<float>(raw_agcr);
     dsp_nrxdcb = new cdsp_dcblock<cdsp_complex_t>(dcb_rate);
     dsp_nrxagc = new cdsp_agc<cdsp_complex_t>(agc_rate);
-    dsp_n_bfskmod = new cdsp_mod_bfsk(params::readParam("dm_tisr", 10000), -200.0f, 200.0f, 10.0f, params::readParam("dm_tbfkt", 33));
-    dsp_n_bfskdemod = new cdsp_demod_bfsk(params::readParam("dm_rnsr", 2000), -200.0f, 200.0f, 100.0f, 0.001f, 0.707f, 0.01f);
+    dsp_n_bfskmod = new cdsp_mod_bfsk(cache_tisr, -200.0f, 200.0f, 10.0f, params::readParam("dm_tbfkt", 33));
+    dsp_n_bfskdemod = new cdsp_demod_bfsk(cache_rnsr, -200.0f, 200.0f, 100.0f, 0.001f, 0.707f, 0.01f);
     float frs[2] = { -200.0f, 200.0f };
-    dsp_n_mfskmod = new cdsp_mod_mfsk(params::readParam("dm_tisr", 10000), 2, frs, 10.0f, params::readParam("dm_tmfkt", 33));
-    dsp_n_mfskdemod = new cdsp_demod_mfsk(params::readParam("dm_rnsr", 2000), 2, frs, 100.0f, 0.02f, 0.707f, 0.01f);
-    dsp_n_mskmod = new cdsp_mod_msk(params::readParam("dm_tisr", 10000), 200.0f);
-    dsp_n_mskdemod = new cdsp_demod_msk(params::readParam("dm_rnsr", 2000), 100.0f, 0.001f, 0.707f, 0.01f);
+    dsp_n_mfskmod = new cdsp_mod_mfsk(cache_tisr, 2, frs, 10.0f, params::readParam("dm_tmfkt", 33));
+    dsp_n_mfskdemod = new cdsp_demod_mfsk(cache_rnsr, 2, frs, 100.0f, 0.02f, 0.707f, 0.01f);
+    dsp_n_mskmod = new cdsp_mod_msk(cache_tisr, 200.0f);
+    dsp_n_mskdemod = new cdsp_demod_msk(cache_rnsr, 100.0f, 0.001f, 0.707f, 0.01f);
     dsp_rxindecim->setInputBlk(dsp_rxinfir, dsp_rxinfir->requestData);
     dsp_rxinfir->setInputBlk(dsp_mainadcsrc, dsp_mainadcsrc->requestData);
     printf("Main: dsp mgr init success! Free memory: %lu bytes\n", esp_get_free_heap_size());
@@ -229,9 +240,13 @@ void dsp_mgr::reloadParams() {
         delete[] dsp_rxinfir_taps;
         dsp_rxinfir_taps = NULL;
     }
+    cache_risr = params::readParam("dm_risr", 100000);
+    cache_rnsr = params::readParam("dm_rnsr", 2000);
+    cache_tisr = params::readParam("dm_tisr", 10000);
+    cache_tdsr = params::readParam("dm_tdsr", 100000);
     dsp_rxinfir_taps = new float[params::readParam("dm_rift", 33)];
     dsp_rxinfir->setTaps(params::readParam("dm_rift", 33), dsp_rxinfir_taps);
-    dsp_rxindecim->setDecimation(params::readParam("dm_risr", 100000) / sdr_rx_sr);
+    dsp_rxindecim->setDecimation(cache_risr / sdr_rx_sr);
     uint32_t dcbr_def = std::bit_cast < uint32_t > (0.9f);
     uint32_t agcr_def = std::bit_cast < uint32_t > (0.9f);
     uint32_t raw_dcbr = params::readParam("dm_rdcb", dcbr_def);
@@ -240,18 +255,18 @@ void dsp_mgr::reloadParams() {
     float agc_rate = std::bit_cast<float>(raw_agcr);
     dsp_nrxdcb->setRate(dcb_rate);
     dsp_nrxagc->setRate(agc_rate);
-    dsp_n_bfskmod->setFs(params::readParam("dm_tisr", 10000));
-    dsp_n_bfskdemod->setFs(params::readParam("dm_rnsr", 2000));
-    dsp_n_mfskmod->setFs(params::readParam("dm_tisr", 10000));
-    dsp_n_mfskdemod->setFs(params::readParam("dm_rnsr", 2000));
-    dsp_n_mskmod->setFs(params::readParam("dm_tisr", 10000));
-    dsp_n_mskdemod->setFs(params::readParam("dm_rnsr", 2000));
+    dsp_n_bfskmod->setFs(cache_tisr);
+    dsp_n_bfskdemod->setFs(cache_rnsr);
+    dsp_n_mfskmod->setFs(cache_tisr);
+    dsp_n_mfskdemod->setFs(cache_rnsr);
+    dsp_n_mskmod->setFs(cache_tisr);
+    dsp_n_mskdemod->setFs(cache_rnsr);
     maini2c->set_speed(params::readParam("dm_i2cl", 400));
     mainsi5351->set_addr(params::readParam("dm_siaddr", 0x60));
     mainsi5351->set_xtal_freq(params::readParam("dm_sixf", 25000000));
     dsp_mainadcsrc->set_bitwidth(params::readParam("dm_adcbw", 12));
     dsp_maincombsink->setCompens(params::readParam("dm_tca", 6), params::readParam("dm_tcb", 0));
-    dsp_maincombsink->setSr(params::readParam("dm_tisr", 10000), params::readParam("dm_tdsr", 100000) / params::readParam("dm_tisr", 10000));
+    dsp_maincombsink->setSr(cache_tisr, cache_tdsr / cache_tisr);
     dsp_maincombsink->setTaps(params::readParam("dm_toft", 33));
     unlock_dsp_mtx();
 }
@@ -263,7 +278,7 @@ void dsp_mgr::dspcore_main(void *arg) {
     maini2s = new chl_i2sanalog();
     mainsi5351 = new chl_ext_si5351(params::readParam("dm_siaddr", 0x60), maini2c, params::readParam("dm_sixf", 25000000));
     dsp_mainadcsrc = new cdsp_src_adc(maini2s, MAINI2S_I_HIGH_CH, MAINI2S_Q_HIGH_CH, params::readParam("dm_adcbw", 12));
-    dsp_maincombsink = new cdsp_sink_combined(maini2s, mainsi5351, params::readParam("dm_tca", 6), params::readParam("dm_tcb", 0), MAINI2S_DAC_CH, false, params::readParam("dm_tisr", 10000), params::readParam("dm_tdsr", 100000) / params::readParam("dm_tisr", 10000), params::readParam("dm_toft", 33));
+    dsp_maincombsink = new cdsp_sink_combined(maini2s, mainsi5351, params::readParam("dm_tca", 6), params::readParam("dm_tcb", 0), MAINI2S_DAC_CH, false, cache_tisr, cache_tdsr / cache_tisr, params::readParam("dm_toft", 33));
     while (true) {
         uint32_t sdr_rx_spls = params::readParam("dm_sdrrxspls", 16);
         uint32_t rx_spls = params::readParam("dm_rxspls", 16);
@@ -493,7 +508,7 @@ void dsp_mgr::set_fr(float newfr, bool reset_afc) {
         afc_shift = 0;
     }
     mainsi5351->set_frequency(false, roundf(newfr));
-    mainsi5351->set_pll_frequency_shift(false, afc_shift * params::readParam("dm_rnsr", 2000));
+    mainsi5351->set_pll_frequency_shift(false, afc_shift * cache_rnsr);
 }
 
 void dsp_mgr::apply_afc() {
@@ -509,13 +524,13 @@ void dsp_mgr::apply_afc() {
     }
     if(relfrshift != 0) {
         afc_shift += relfrshift * AFC_RATE;
-        int fr_shift_hz = afc_shift * params::readParam("dm_rnsr", 2000);
+        int fr_shift_hz = afc_shift * cache_rnsr;
         if(fabsf(fr_shift_hz) >= fabsf(MAX_AFC_SHIFT)) {
             printf("FR SHIFT TOO LARGE: %d, RESETTING\n", fr_shift_hz);
             afc_shift = 0;
             fr_shift_hz = 0;
         }
-        mainsi5351->set_pll_frequency_shift(false, afc_shift * params::readParam("dm_rnsr", 2000));
+        mainsi5351->set_pll_frequency_shift(false, afc_shift * cache_rnsr);
     }
 }
 
@@ -531,7 +546,7 @@ void dsp_mgr::rx_set_ins(bool ins) {
 
 void dsp_mgr::general_rx_start() {
     mainsi5351->set_output_enabled(false, true);
-    maini2s->setSampleRate(params::readParam("dm_risr", 100000));
+    maini2s->setSampleRate(cache_risr);
     pin_mgr::set_rxled_enable(true);
 }
 
@@ -545,7 +560,7 @@ void dsp_mgr::general_tx_start() {
     mainsi5351->set_output_enabled(true, true);
     // maini2c->force_gpio(true);
     maini2c->set_speed(params::readParam("dm_i2ch", 900));
-    maini2s->setSampleRate(params::readParam("dm_tdsr", 100000));
+    maini2s->setSampleRate(cache_tdsr);
     dsp_maincombsink->start(true);
     pin_mgr::set_txled_enable(true);
     notifyDspTask();
@@ -565,8 +580,8 @@ void dsp_mgr::sdr_rx_start() {
     if (curr_mode == DSPMGR_MODE_IDLE) {
         lock_dsp_mtx();
         //Configure blocks, calculate taps
-        dsp_rxindecim->setDecimation(roundf(params::readParam("dm_risr", 100000) / sdr_rx_sr));
-        cdsp_calc_taps_lpf_float(dsp_rxinfir_taps, params::readParam("dm_rift", 33), params::readParam("dm_risr", 100000), sdr_rx_sr / 2.0f, true);
+        dsp_rxindecim->setDecimation(roundf(cache_risr / sdr_rx_sr));
+        cdsp_calc_taps_lpf_float(dsp_rxinfir_taps, params::readParam("dm_rift", 33), cache_risr, sdr_rx_sr / 2.0f, true);
         //Make the chain
 //        dsp_nrxagc->setInputBlk(dsp_nrxdcb, dsp_nrxdcb->requestData);
 //		dsp_nrxdcb->setInputBlk(dsp_rxindecim, dsp_rxindecim->requestData);
@@ -705,7 +720,7 @@ void dsp_mgr::n_bfsk_set_params(float fr0, float fr1, float speed) {
         uint32_t loopbw_def = std::bit_cast < uint32_t > (0.0005f);
         uint32_t raw_loopbw = params::readParam("dm_loopbw", loopbw_def);
         float loopbw = std::bit_cast<float>(raw_loopbw);
-        dsp_n_bfskdemod->setLoopBw((params::readParam("dm_rnsr", 2000) / speed) * loopbw);
+        dsp_n_bfskdemod->setLoopBw((cache_rnsr / speed) * loopbw);
         unlock_dsp_mtx();
     }
 }
@@ -755,8 +770,8 @@ void dsp_mgr::n_bfsk_rx_start() {
             lock_dsp_mtx();
         //Configure blocks, calculate taps
         dsp_mainadcsrc->setAdcChannels(MAINI2S_I_HIGH_CH, MAINI2S_Q_HIGH_CH);
-        dsp_rxindecim->setDecimation(roundf(params::readParam("dm_risr", 100000) / params::readParam("dm_rnsr", 2000)));
-        cdsp_calc_taps_lpf_float(dsp_rxinfir_taps, params::readParam("dm_rift", 33), params::readParam("dm_risr", 100000), params::readParam("dm_rnsr", 2000) / 2.0f, true);
+        dsp_rxindecim->setDecimation(roundf(cache_risr / cache_rnsr));
+        cdsp_calc_taps_lpf_float(dsp_rxinfir_taps, params::readParam("dm_rift", 33), cache_risr, cache_rnsr / 2.0f, true);
         //Make the chain
         dsp_n_bfskdemod->setInputBlk(dsp_nrxagc, dsp_nrxagc->requestData);
         dsp_nrxagc->setInputBlk(dsp_nrxdcb, dsp_nrxdcb->requestData);
@@ -797,7 +812,7 @@ void dsp_mgr::n_mfsk_set_params(int frcnt, float *frs, float speed) {
         uint32_t loopbw_def = std::bit_cast < uint32_t > (0.0005f);
         uint32_t raw_loopbw = params::readParam("dm_loopbw", loopbw_def);
         float loopbw = std::bit_cast<float>(raw_loopbw);
-        dsp_n_mfskdemod->setLoopBw((params::readParam("dm_rnsr", 2000) / speed) * loopbw);
+        dsp_n_mfskdemod->setLoopBw((cache_rnsr / speed) * loopbw);
         unlock_dsp_mtx();
     }
 }
@@ -844,8 +859,8 @@ void dsp_mgr::n_mfsk_rx_start() {
             lock_dsp_mtx();
         //Configure blocks, calculate taps
         dsp_mainadcsrc->setAdcChannels(MAINI2S_I_HIGH_CH, MAINI2S_Q_HIGH_CH);
-        dsp_rxindecim->setDecimation(roundf(params::readParam("dm_risr", 100000) / params::readParam("dm_rnsr", 2000)));
-        cdsp_calc_taps_lpf_float(dsp_rxinfir_taps, params::readParam("dm_rift", 33), params::readParam("dm_risr", 100000), params::readParam("dm_rnsr", 2000) / 2.0f, true);
+        dsp_rxindecim->setDecimation(roundf(cache_risr / cache_rnsr));
+        cdsp_calc_taps_lpf_float(dsp_rxinfir_taps, params::readParam("dm_rift", 33), cache_risr, cache_rnsr / 2.0f, true);
         //Make the chain
         dsp_n_mfskdemod->setInputBlk(dsp_nrxagc, dsp_nrxagc->requestData);
         dsp_nrxagc->setInputBlk(dsp_nrxdcb, dsp_nrxdcb->requestData);
@@ -884,7 +899,7 @@ void dsp_mgr::n_msk_set_params(float speed) {
         uint32_t loopbw_def = std::bit_cast < uint32_t > (0.0005f);
         uint32_t raw_loopbw = params::readParam("dm_loopbw", loopbw_def);
         float loopbw = std::bit_cast<float>(raw_loopbw) / 2.5f;
-        dsp_n_mskdemod->setLoopBw((params::readParam("dm_rnsr", 2000) / speed) * loopbw);
+        dsp_n_mskdemod->setLoopBw((cache_rnsr / speed) * loopbw);
         unlock_dsp_mtx();
     }
 }
@@ -930,8 +945,8 @@ void dsp_mgr::n_msk_rx_start() {
         //Configure blocks, calculate taps
         set_fr(mainsi5351->get_curr_center_freq() - (dsp_n_mskmod->getDataRate() + 100.0f), false); //required because analog receiver circuit works awfully on F<~100 Hz
         dsp_mainadcsrc->setAdcChannels(MAINI2S_I_HIGH_CH, MAINI2S_Q_HIGH_CH);
-        dsp_rxindecim->setDecimation(roundf(params::readParam("dm_risr", 100000) / params::readParam("dm_rnsr", 2000)));
-        cdsp_calc_taps_lpf_float(dsp_rxinfir_taps, params::readParam("dm_rift", 33), params::readParam("dm_risr", 100000), params::readParam("dm_rnsr", 2000) / 2.0f, true);
+        dsp_rxindecim->setDecimation(roundf(cache_risr / cache_rnsr));
+        cdsp_calc_taps_lpf_float(dsp_rxinfir_taps, params::readParam("dm_rift", 33), cache_risr, cache_rnsr / 2.0f, true);
         //Make the chain
         dsp_n_mskdemod->setInputBlk(dsp_nrxagc, dsp_nrxagc->requestData);
         dsp_nrxagc->setInputBlk(dsp_nrxdcb, dsp_nrxdcb->requestData);
