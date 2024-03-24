@@ -2,6 +2,122 @@
 
 namespace cbmodem {
 
+    uint8_t calc_crc8(uint8_t* data, int cnt) {
+        uint8_t out = 0;
+        for(int i = 0; i < cnt; i++) {
+            out = out ^ data[i];
+            for(int k = 0; k < 8; k++) {
+                bool x = out & (1 << 7);
+                out = (out << 1);
+                if(x) {
+                    out = out ^ crc8_polynom;
+                }
+            }
+        }
+        return out;
+    }
+
+    template<typename T>
+    ModemPILockingQueue<T>::~ModemPILockingQueue() {
+        setWorking(false);
+    }
+
+    template<typename T>
+    bool ModemPILockingQueue<T>::push(T const &_data) {
+        if (!working) {
+            return false;
+        }
+        {
+            std::lock_guard<std::mutex> lock(guard);
+            queue.push(_data);
+        }
+        signal.notify_one();
+        return true;
+    }
+
+    template<typename T>
+    bool ModemPILockingQueue<T>::empty() {
+        std::lock_guard<std::mutex> lock(guard);
+        return queue.empty() || !working;
+    }
+
+    template<typename T>
+    size_t ModemPILockingQueue<T>::size() {
+        std::lock_guard<std::mutex> lock(guard);
+        return queue.size();
+    }
+
+    template<typename T>
+    int ModemPILockingQueue<T>::tryPop(T &_value) {
+        std::lock_guard<std::mutex> lock(guard);
+        if (!working) {
+            return -1;
+        }
+        if (queue.empty()) {
+            return -2;
+        }
+
+        _value = queue.front();
+        queue.pop();
+        return 0;
+    }
+
+    template<typename T>
+    bool ModemPILockingQueue<T>::waitAndPop(T &_value) {
+        std::unique_lock<std::mutex> lock(guard);
+        while (true) {
+            if (!working) {
+                return false;
+            } else if (queue.empty()) {
+                signal.wait(lock);
+            } else {
+                break;
+            }
+        }
+
+        _value = queue.front();
+        queue.pop();
+        return true;
+    }
+
+    template<typename T>
+    int ModemPILockingQueue<T>::tryWaitAndPop(T &_value, int _milli) {
+        std::unique_lock<std::mutex> lock(guard);
+        while (true) {
+            if (!working) {
+                return -1;
+            } else if (queue.empty()) {
+                std::cv_status x = signal.wait_for(lock, std::chrono::milliseconds(_milli));
+                if (x == std::cv_status::timeout) {
+                    return -2;
+                }
+            } else {
+                break;
+            }
+        }
+
+        _value = queue.front();
+        queue.pop();
+        return 0;
+    }
+
+    template<typename T>
+    void ModemPILockingQueue<T>::setWorking(bool newwork) {
+        working = newwork;
+        signal.notify_one();
+        signal.notify_all();
+        signal.notify_all();
+        guard.unlock();
+    }
+
+    template class ModemPILockingQueue<char>;
+    template class ModemPILockingQueue<pc_packet_interface::pc_packet>;
+
+    ModemPacketInterface::~ModemPacketInterface() {
+        stop();
+    }
+
+
     void ModemPacketInterface::init(std::string serial_dev) {
         stop();
         _serial_dev = serial_dev;
@@ -30,7 +146,7 @@ namespace cbmodem {
         _tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL); // Disable any special handling of received bytess
         _tty.c_cc[VTIME] = READ_TIMEOUT_MS/100;
         _tty.c_cc[VMIN] = 0;
-        if (cfsetspeed(&(_tty), B1000000)) {
+        if (cfsetspeed(&(_tty), B115200)) {
             fprintf(stderr, "ModemPI: cfsetispeed() failed! Error: %s\n", strerror(errno));
             close(_fd);
             return false;
@@ -56,24 +172,35 @@ namespace cbmodem {
         _tty_mtx.unlock();
         _working = false;
 
-        if (_fd != -1) {
-            uint8_t newmode = pc_packet_interface::modes::PC_PI_MODE_UNINITED;
-            pc_packet_interface::pc_packet startp;
-            startp.type = pc_packet_interface::packetType_frompc::PC_PI_PTP_CHANGE_MODE;
-            startp.len = 1;
-            startp.data[0] = newmode;
-            _send_packet(startp);
-            _read_packet_ack();
+        if (_fd >= 0) {
+            ioctl(_fd, TCFLSH, 2); // flush R and T buffs
+            int oldfd = _fd;
+            if(_rx_thr != 0 && _tx_thr != 0 && _rx_thr->joinable() && _tx_thr->joinable()) {
+               uint8_t newmode = pc_packet_interface::modes::PC_PI_MODE_UNINITED;
+               pc_packet_interface::pc_packet startp;
+               startp.type = pc_packet_interface::packetType_frompc::PC_PI_PTP_CHANGE_MODE;
+               startp.len = 1;
+               startp.data[0] = newmode;
+               _send_packet(startp);
+               _read_packet_ack();
+            }
+            ioctl(_fd, TCFLSH, 2); // flush R and T buffs
+            _fd = -1;
             _rx_queue.setWorking(false);
             _rx2_queue.setWorking(false);
             _tx_queue.setWorking(false);
-            int oldfd = _fd;
-            _fd = -1;
-            close(oldfd);
-            _rx_thr->join();
-            _tx_thr->join();
+            if(_rx_thr != 0 && _rx_thr->joinable()) {
+                _rx_thr->join();
+            }
             delete _rx_thr;
+            if(_tx_thr != 0 &&_tx_thr->joinable()) {
+                _tx_thr->join();
+            }
             delete _tx_thr;
+            _rx_thr = 0;
+            _tx_thr = 0;
+            ioctl(oldfd, TCFLSH, 2); // flush R and T buffs
+            close(oldfd);
         }
     }
 
@@ -89,13 +216,15 @@ namespace cbmodem {
         ioctl(_fd, TCFLSH, 2); // flush R and T buffs
         if (reset) {
             reset_mcu();
+            int ctr = 0;
             while (1) {
                 pc_packet_interface::pc_packet p;
                 int ret = _read_packet(p);
-                if (ret == -1 || !_working) {
+                if (ret == -1 || ctr >= 20 || !_working) {
                     fprintf(stderr, "ModemPI: Init packet read failed!\n");
                     return;
                 } else if(ret == -2) {
+                    ctr++;
                     continue;
                 }
                 if (p.type == pc_packet_interface::packetType_fromdev::PC_PI_PTD_START) {
@@ -198,13 +327,16 @@ namespace cbmodem {
         _send_packet(p);
         if (!_read_packet_ack()) {
             fprintf(stderr, "ModemPI: Tx start NACK!\n");
+            return;
         }
-        while (1) {
+        int ctr = 0;
+        while (ctr <= 100) {
             int ret = _read_packet(p);
             if (ret != 0 || !_working) {
                 if (ret == -1 || !_working) {
                     return;
                 } else {
+                    ctr++;
                     continue;
                 }
             }
@@ -212,6 +344,7 @@ namespace cbmodem {
                 return;
             }
         }
+        return;
     }
 
     void ModemPacketInterface::stop_tx() {
@@ -295,12 +428,12 @@ namespace cbmodem {
                 uint8_t errs = ptypeerrs & 0b111111;
                 if(ptype == 0) {
                     data[0] = errs;
-                    return -10;
+                    return RX_DATA_RET_SW;
                 } else if(ptype == 1) {
                     data[0] = errs;
-                    return -11;
+                    return RX_DATA_RET_LEN;
                 } else if(ptype == 3) {
-                    return -13;
+                    return RX_DATA_RET_ACK;
                 } else if(ptype == 2) {
                     uint8_t dlen = p.len - 1;
                     for (int i = 0; i < dlen; i++) {
@@ -410,7 +543,7 @@ namespace cbmodem {
         pc_packet_interface::pc_packet readp;
         uint8_t checksum_buff[sizeof(pc_packet_interface::pc_packet)];
         checksum_buff[0] = pc_packet_interface::startByte;
-        while (1) {
+        while (_this->_fd >= 0) {
             while (_this->_packet_read_buff_data > 0) {
                 if (state == 0) {
                     if (_this->_packet_read_buff[_this->_packet_read_buff_pos] == pc_packet_interface::startByte) {
@@ -460,7 +593,7 @@ namespace cbmodem {
                     if(calc_checksum == readp.checksum) {
                         if (!_this->_rx_queue.push(readp)) {
                             _this->_rx_queue.setWorking(false);
-                            return;
+                            goto _end;
                         }
                     } else {
                         fprintf(stderr, "ModemPI: packet RX host CRC error(%x %x %d %d)!\n", calc_checksum, readp.checksum, readp.len, 3+outdata_pos);
@@ -470,33 +603,28 @@ namespace cbmodem {
                 _this->_packet_read_buff_pos++;
                 _this->_packet_read_buff_data--;
             }
-            if (_this->_fd < 0) {
-                _this->_rx_queue.setWorking(false);
-                _this->_rx2_queue.setWorking(false);
-                return;
-            }
             int r = read(_this->_fd, _this->_packet_read_buff, 4);
             if (r < 0) {
                 if (_this->_fd >= 0) {
                     fprintf(stderr, "ModemPI: serial read failed! Error: %s\n", strerror(r));
                 }
-                _this->_rx_queue.setWorking(false);
-                _this->_rx2_queue.setWorking(false);
-                return;
+                break;
             }
             _this->_packet_read_buff_data = r;
             _this->_packet_read_buff_pos = 0;
         }
+    _end:
+        _this->_rx_queue.setWorking(false);
+        _this->_rx2_queue.setWorking(false);
     }
 
     void ModemPacketInterface::_tx_thread_func(void *ctx) {
         ModemPacketInterface *_this = (ModemPacketInterface*) ctx;
         pthread_setname_np(pthread_self(), "modemPI_tx");
         pc_packet_interface::pc_packet sendp;
-        while (true) {
+        while (1) {
             if (!_this->_tx_queue.waitAndPop(sendp)) {
-                _this->_tx_queue.setWorking(false);
-                return;
+                goto _end;
             }
             int bufs = 5 + sendp.len;
             uint8_t packet_send_buff[bufs];
@@ -511,20 +639,35 @@ namespace cbmodem {
             }
             packet_send_buff[4 + sendp.len] = calc_crc8(&packet_send_buff[1], 3+sendp.len);
             if (_this->_fd < 0) {
-                _this->_tx_queue.setWorking(false);
-                return;
+                goto _end;
             }
+            // fprintf(stderr, "SENDPKT T: %d, CRC: %x, LEN: %d : [", sendp.type, packet_send_buff[4 + sendp.len], sendp.len);
+            // write(_this->_fd, &packet_send_buff[0], bufs);
+            // fsync(_this->_fd);
             write(_this->_fd, &packet_send_buff[0], 1);
-            usleep(10000UL); //don't remember, why this is needed. probably can be removed
+            fsync(_this->_fd);
+            usleep(1000UL); //don't remember, why this is needed. probably can be removed. NO!!!!!!!!!
+            // fprintf(stderr, "%x, ", packet_send_buff[0]);
             write(_this->_fd, &packet_send_buff[1], 1);
-            usleep(10000UL);
+            fsync(_this->_fd);
+            usleep(1000UL);
+            // fprintf(stderr, "%x, ", packet_send_buff[1]);
 
             for(int i = 2; i < bufs; i+=16) {
                 write(_this->_fd, &packet_send_buff[i], std::min(16, bufs-i));
                 fsync(_this->_fd);
-                usleep(5000);
+                usleep(5000UL);
             }
+            // for(int i = 2; i < bufs; i++) {
+            //     write(_this->_fd, &packet_send_buff[i], 1);
+            //     fsync(_this->_fd);
+            //     // usleep(500UL);
+            //     // fprintf(stderr, "%x, ", packet_send_buff[i]);
+            // }
+            // fprintf(stderr, "]\n");
         }
+    _end:
+        _this->_tx_queue.setWorking(false);
     }
 
     int ModemPacketInterface::_read_packet(pc_packet_interface::pc_packet &p) {
@@ -541,7 +684,7 @@ namespace cbmodem {
 
     uint8_t ModemPacketInterface::_read_packet_ack() {
         int ctr = 0;
-        while (1) {
+        while (ctr < 50) {
             pc_packet_interface::pc_packet p;
             if (_read_packet(p) != 0) {
                 fprintf(stderr, "ModemPI: Ack packet read failed!\n");
@@ -551,9 +694,7 @@ namespace cbmodem {
                 return p.data[0];
             }
             ctr++;
-            if (ctr >= 50) {
-                return 0; //too many packets; ack probably missed
-            }
         }
+        return 0; //too many packets; ack probably missed
     }
 }

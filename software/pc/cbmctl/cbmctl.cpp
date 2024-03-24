@@ -253,6 +253,7 @@ std::atomic<bool> interactiveModeRun(true);
 std::mutex interactModeMtx;
 int interactModeSpd = 1;
 std::thread *interactiveModeThread = NULL;
+std::thread *RX2Thread = NULL;
 
 void signal_callback_handler(int signum) {
     std::cout << "Caught signal " << signum << std::endl;
@@ -324,6 +325,19 @@ void interactive_mode_read() {
         }
         if (std::cin.bad() || std::cin.fail() || std::cin.eof()) {
             break;
+        }
+    }
+    interactiveModeRun.store(false);
+}
+
+void rx2_read() {
+    pthread_setname_np(pthread_self(), "rx2");
+    std::string buffer;
+    while (interactiveModeRun.load()) {
+        char c;
+        int r = modemPI.read_rx2_char(c);
+        if(r == 0) {
+            fprintf(stderr, "%c", c);
         }
     }
     interactiveModeRun.store(false);
@@ -409,12 +423,17 @@ int main(int argc, char **argv) {
         retval = 1;
         goto _end;
     }
+    // if(!noReset) {
+    //     modemPI.reset_mcu();
+    //     usleep(500000UL);
+    // }
+    RX2Thread = new std::thread(rx2_read);
     if ((params.find("readParamInt") != params.end())) {
         std::string paramName = params["readParamInt"];
         char data[256];
         int len = modemPI.read_param(paramName, data, 255);
         if (len != 4) {
-            printf("Wrong data!\n");
+            printf("Value not set/default!\n");
             retval = 1;
             goto _end;
         }
@@ -426,7 +445,7 @@ int main(int argc, char **argv) {
         char data[256];
         int len = modemPI.read_param(paramName, data, 255);
         if (len != 4) {
-            printf("Wrong data!\n");
+            printf("Value not set/default!\n");
             retval = 1;
             goto _end;
         }

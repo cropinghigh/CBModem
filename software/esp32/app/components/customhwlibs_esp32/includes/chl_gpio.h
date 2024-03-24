@@ -2,6 +2,7 @@
 #define H_CHL_GPIO
 #include <soc/gpio_periph.h>
 #include <soc/rtc_periph.h>
+#include <soc/rtc_io_reg.h>
 
 //WARNING! NO THREAD SAFETY! NO IDIOT PROTECTION! BE CAREFUL!
 //TODO: interrupts configuration; RTC functions; sleep mode configuration; hold; clock output; drive strength

@@ -22,14 +22,18 @@
 #include <poll.h>
 #include <format>
 
-#define READ_TIMEOUT_MS 300
+#define READ_TIMEOUT_MS 400
 #define RX2_BYTES_LIMIT 512
 #define RX_DATA_RETSHIFT_DUP 2000
 #define RX_DATA_RETSHIFT_BADCRC 1000
+#define RX_DATA_RET_SW -10
+#define RX_DATA_RET_LEN -11
+#define RX_DATA_RET_ACK -13
 
 namespace cbmodem {
 
-    //VERSION=1.1
+
+    //VERSION=1.2
     class pc_packet_interface {
         public:
             //Interface using binary packets, starting from startByte
@@ -55,6 +59,7 @@ namespace cbmodem {
                 PC_PI_PTP_TX_STOP, //Stop transmitting in current selected mode, no data
                 PC_PI_PTP_TX_DATA, //Put data to tx buffer, data: in SDR mode N complex vals(2 int16 - i & q), in normal mode N bytes of packet data
                 PC_PI_PTP_TX_CARRIER, //Start transmitting max amplitude carrier wave, no data
+                CURSED,
                 PC_PI_PTP_PARAM_READ, //Request reading parameter, data: 1 byte-name length(1-15), N bytes - name
                 PC_PI_PTP_PARAM_WRITE, //Write parameter to device, data: 1 byte-name length(1-15), N bytes - name, 1 byte-value length, K bytes - value
                 PC_PI_PTP_PARAM_STORE, //Store written params to flash, no data
@@ -79,104 +84,19 @@ namespace cbmodem {
     //VERSION=1.1
     const uint8_t crc8_polynom = 0xD5;
 
-    uint8_t calc_crc8(uint8_t* data, int cnt) {
-        uint8_t out = 0;
-        for(int i = 0; i < cnt; i++) {
-            out = out ^ data[i];
-            for(int k = 0; k < 8; k++) {
-                bool x = out & (1 << 7);
-                out = (out << 1);
-                if(x) {
-                    out = out ^ crc8_polynom;
-                }
-            }
-        }
-        return out;
-    }
+    uint8_t calc_crc8(uint8_t* data, int cnt);
 
     template<typename T>
     class ModemPILockingQueue {
         public:
-            bool push(T const &_data) {
-                if (!working) {
-                    return false;
-                }
-                {
-                    std::lock_guard<std::mutex> lock(guard);
-                    queue.push(_data);
-                }
-                signal.notify_one();
-                return true;
-            }
-
-            bool empty() const {
-                std::lock_guard<std::mutex> lock(guard);
-                return queue.empty() || !working;
-            }
-
-            size_t size() {
-                std::lock_guard<std::mutex> lock(guard);
-                return queue.size();
-            }
-
-            int tryPop(T &_value) {
-                std::lock_guard<std::mutex> lock(guard);
-                if (!working) {
-                    return -1;
-                }
-                if (queue.empty()) {
-                    return -2;
-                }
-
-                _value = queue.front();
-                queue.pop();
-                return 0;
-            }
-
-            bool waitAndPop(T &_value) {
-                std::unique_lock<std::mutex> lock(guard);
-                while (true) {
-                    if (!working) {
-                        return false;
-                    } else if (queue.empty()) {
-                        signal.wait(lock);
-                    } else {
-                        break;
-                    }
-                }
-
-                _value = queue.front();
-                queue.pop();
-                return true;
-            }
-
-            int tryWaitAndPop(T &_value, int _milli) {
-                std::unique_lock<std::mutex> lock(guard);
-                while (true) {
-                    if (!working) {
-                        return -1;
-                    } else if (queue.empty()) {
-                        std::cv_status x = signal.wait_for(lock, std::chrono::milliseconds(_milli));
-                        if (x == std::cv_status::timeout) {
-                            return -2;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-
-                _value = queue.front();
-                queue.pop();
-                return 0;
-            }
-
-            void setWorking(bool newwork) {
-                working = newwork;
-                signal.notify_one();
-                signal.notify_all();
-                signal.notify_all();
-                guard.unlock();
-            }
+            ~ModemPILockingQueue();
+            bool push(T const &_data);
+            bool empty();
+            size_t size();
+            int tryPop(T &_value);
+            bool waitAndPop(T &_value);
+            int tryWaitAndPop(T &_value, int _milli);
+            void setWorking(bool newwork);
 
         private:
             std::queue<T> queue;
@@ -187,6 +107,7 @@ namespace cbmodem {
 
     class ModemPacketInterface {
         public:
+            ~ModemPacketInterface();
             void init(std::string serial_dev);
             bool start();
             void stop();

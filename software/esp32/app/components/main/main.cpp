@@ -64,7 +64,7 @@ void IRAM_ATTR uart_sync_packet_read(pc_packet_interface::pc_packet *p) {
     while (1) {
         while (packet_read_buff_data > 0) {
 //            if(packet_read_buff[packet_read_buff_pos] != pc_packet_interface::startByte) {
-//                printf("%c", packet_read_buff[packet_read_buff_pos]);
+            // printf("[%x]", packet_read_buff[packet_read_buff_pos]);
 //                fflush(stdout);
 //            }
             if (state == 0) {
@@ -435,26 +435,27 @@ void IRAM_ATTR app_main(void) {
                     name[i] = p.data[i + 1];
                 }
                 name[namelen] = '\0';
-                char def_val;
+                uint32_t def_val = 0;
                 char val[255];
-                int len = params::readParam(std::string(name), val, &def_val, 255, 0);
-                if (len == 0) {
-                    uint32_t def = 0;
-                    uint32_t rval = params::readParam(std::string(name), def);
+                // int len = params::readParam(std::string(name), val, &def_val, 255, 0);
+                int ret = params::readParam(std::string(name), (uint32_t*)&val, def_val);
+                if (ret != 0) {
+                    // uint32_t def = 0;
+                    // uint32_t rval = params::readParam(std::string(name), def);
                     ackp.data[0] = 1;
                     uart_sync_packet_send(ackp);
 //                    vTaskDelay(10 / portTICK_PERIOD_MS);
                     ackp.type = pc_packet_interface::packetType_fromdev::PC_PI_PTD_PARAM_DATA;
-                    ackp.len = 4;
-                    for(int i = 0; i < ackp.len; i++) {
-                        ackp.data[i] = ((uint8_t*) &rval)[i];
-                    }
+                    ackp.len = 0;
+                    // for(int i = 0; i < ackp.len; i++) {
+                    //     ackp.data[i] = ((uint8_t*) &rval)[i];
+                    // }
                 } else {
                     ackp.data[0] = 1;
                     uart_sync_packet_send(ackp);
 //                    vTaskDelay(10 / portTICK_PERIOD_MS);
                     ackp.type = pc_packet_interface::packetType_fromdev::PC_PI_PTD_PARAM_DATA;
-                    ackp.len = len;
+                    ackp.len = 4;
                     for(int i = 0; i < ackp.len; i++) {
                         ackp.data[i] = ((uint8_t*) &val)[i];
                     }

@@ -6,7 +6,10 @@
 #include <soc/adc_periph.h>
 #include <soc/dac_periph.h>
 #include <soc/regi2c_apll.h>
-#include <soc/syscon_periph.h>
+#include <soc/rtc_periph.h>
+#include <soc/rtc.h>
+#include <soc/syscon_reg.h>
+#include <soc/sens_reg.h>
 #include <esp_attr.h>
 #include <esp_intr_alloc.h>
 #include <esp_system.h>

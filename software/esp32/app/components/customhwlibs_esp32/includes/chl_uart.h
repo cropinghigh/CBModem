@@ -2,6 +2,8 @@
 #define H_CHL_UART
 #include <soc/uart_periph.h>
 #include <soc/uhci_periph.h>
+#include <soc/uhci_reg.h>
+#include <soc/uart_reg.h>
 #include <esp_attr.h>
 #include <esp_intr_alloc.h>
 #include <esp_system.h>

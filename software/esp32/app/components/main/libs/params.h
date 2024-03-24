@@ -12,7 +12,8 @@ namespace params {
     void writeParam(std::string name, void* data, size_t len);
     void writeParam(std::string name, uint32_t data);
     void store();
-    int readParam(std::string name, void* data, void* def_val, size_t len, size_t defval_len);
+    // int readParam(std::string name, void* data, void* def_val, size_t len, size_t defval_len);
+    int readParam(std::string name, uint32_t* data, uint32_t def_val);
     uint32_t readParam(std::string name, uint32_t def_val);
 
     nvs_handle_t nvshdl;
@@ -25,6 +26,7 @@ void params::init() {
         // Retry nvs_flash_init
         ESP_ERROR_CHECK(nvs_flash_erase());
         err = nvs_flash_init();
+        printf("Erasing NVS flash...\n");
     }
     ESP_ERROR_CHECK( err );
     err = nvs_open("modemstr", NVS_READWRITE, &nvshdl);
@@ -51,36 +53,52 @@ void params::store() {
     }
 }
 
-int params::readParam(std::string name, void* data, void* def_val, size_t len, size_t defval_len) {
-    size_t l = 0;
-    int err = nvs_get_blob(nvshdl, name.c_str(), NULL, &l);
+// int params::readParam(std::string name, void* data, void* def_val, size_t len, size_t defval_len) {
+//     size_t l = 0;
+//     int err = nvs_get_blob(nvshdl, name.c_str(), NULL, &l);
+//     printf("RD PARAM %s, LEN %d, RET %d\n", name.c_str(), l, err);
+//     if(err != ESP_OK) {
+// 		if(err == ESP_ERR_NVS_NOT_FOUND) {
+// 			memcpy(data, def_val, defval_len);
+// 			return defval_len;
+// 		} else {
+// 			printf("PARAMS LEN READ FAILED!\n");
+// 			return 0;
+// 		}
+// 	}
+//     err = nvs_get_blob(nvshdl, name.c_str(), data, &l);
+//     printf("RD2 PARAM %s, LEN %d, RET %d\n", name.c_str(), l, err);
+//     if(err != ESP_OK) {
+//         if(err == ESP_ERR_NVS_NOT_FOUND) {
+//             memcpy(data, def_val, defval_len);
+//             return defval_len;
+//         } else {
+//             printf("PARAMS READ FAILED!\n");
+//             return 0;
+//         }
+//     }
+//     return l;
+// }
+
+int params::readParam(std::string name, uint32_t* data, uint32_t def_val) {
+    *data = def_val;
+    int err = nvs_get_u32(nvshdl, name.c_str(), data);
     if(err != ESP_OK) {
-		if(err == ESP_ERR_NVS_NOT_FOUND) {
-			memcpy(data, def_val, defval_len);
-			return defval_len;
-		} else {
-			printf("PARAMS LEN READ FAILED!\n");
-			return 0;
-		}
-	}
-    err = nvs_get_blob(nvshdl, name.c_str(), data, &l);
-    if(err != ESP_OK) {
-        if(err == ESP_ERR_NVS_NOT_FOUND) {
-            memcpy(data, def_val, defval_len);
-            return defval_len;
+        if(err != ESP_ERR_NVS_NOT_FOUND) {
+            printf("PARAMS READ FAILED(%d)!\n", err);
+            return -2;
         } else {
-            printf("PARAMS READ FAILED!\n");
-            return 0;
+            return -1;
         }
     }
-    return l;
+    return 0;
 }
 
 uint32_t params::readParam(std::string name, uint32_t def_val) {
     uint32_t ret = def_val;
     int err = nvs_get_u32(nvshdl, name.c_str(), &ret);
     if(err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
-        printf("PARAMS READ FAILED!\n");
+        printf("PARAMS READ FAILED(%d)!\n", err);
     }
     return ret;
 }
