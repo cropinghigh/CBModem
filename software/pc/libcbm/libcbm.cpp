@@ -639,15 +639,15 @@ namespace cbmodem {
                 goto _end;
             }
             // fprintf(stderr, "SENDPKT T: %d, CRC: %x, LEN: %d : [", sendp.type, packet_send_buff[4 + sendp.len], sendp.len);
-            // write(_this->_fd, &packet_send_buff[0], bufs);
+            write(_this->_fd, &packet_send_buff[0], bufs);
+            fsync(_this->_fd);
+            // write(_this->_fd, &packet_send_buff[0], 1);
             // fsync(_this->_fd);
-            write(_this->_fd, &packet_send_buff[0], 1);
-            fsync(_this->_fd);
-            usleep(1000UL); //don't remember, why this is needed. probably can be removed. NO!!!!!!!!!
+            // usleep(1000UL); //don't remember, why this is needed. probably can be removed. NO!!!!!!!!!
             // // fprintf(stderr, "%x, ", packet_send_buff[0]);
-            write(_this->_fd, &packet_send_buff[1], 1);
-            fsync(_this->_fd);
-            usleep(1000UL);
+            // write(_this->_fd, &packet_send_buff[1], 1);
+            // fsync(_this->_fd);
+            // usleep(1000UL);
             // // fprintf(stderr, "%x, ", packet_send_buff[1]);
             // write(_this->_fd, &packet_send_buff[2], 1);
             // fsync(_this->_fd);
@@ -657,11 +657,11 @@ namespace cbmodem {
             // fsync(_this->_fd);
             // usleep(1000UL);
             // 
-            for(int i = 2; i < bufs; i+=16) {
-                write(_this->_fd, &packet_send_buff[i], std::min(16, bufs-i));
-                fsync(_this->_fd);
-                usleep(5000UL);
-            }
+            // for(int i = 2; i < bufs; i+=16) {
+            //     write(_this->_fd, &packet_send_buff[i], std::min(16, bufs-i));
+            //     fsync(_this->_fd);
+            //     usleep(5000UL);
+            // }
             // for(int i = 2; i < bufs; i++) {
                 // write(_this->_fd, &packet_send_buff[i], 1);
             //     fsync(_this->_fd);
