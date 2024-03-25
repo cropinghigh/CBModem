@@ -11,6 +11,7 @@
 #include <qfuture.h>
 #include <QStandardItemModel>
 #include <QScrollBar>
+#include <QThreadPool>
 
 #include <libcbm.h>
 

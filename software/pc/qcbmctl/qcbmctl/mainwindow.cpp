@@ -2,6 +2,7 @@
 #include "./ui_mainwindow.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow), settings("Indir", "qcbmctl"), font("Monospace") {
+    QThreadPool::globalInstance()->setMaxThreadCount(30);
     ui->setupUi(this);
     setCentralWidget(ui->tabWidget);
 
